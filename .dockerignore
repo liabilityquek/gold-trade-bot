@@ -1,0 +1,17 @@
+.env
+.git
+.gitignore
+.claude/
+output/
+logs/
+data/managed_trades.json
+data/KILL_SWITCH
+*.session
+*.bak
+*.bak2
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.md
