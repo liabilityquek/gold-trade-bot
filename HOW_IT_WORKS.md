@@ -221,7 +221,7 @@ Why this window?
 - It avoids the quiet periods (Singapore early morning = global dead zone) and the chaotic overlap of multiple sessions simultaneously
 - You can monitor the bot's activity during your normal waking hours
 
-Outside this window, the bot is still running — it monitors open trades, updates trailing stops, and checks emergency risk conditions every 60 seconds. It just does not look for new entry opportunities.
+Outside this window, the bot is still running — it monitors open trades, updates trailing stops, and checks emergency risk conditions every 5 seconds. It just does not look for new entry opportunities.
 
 ### When No New Trades Are Placed
 
@@ -304,26 +304,7 @@ If the bot crashes or you restart it, it reads `data/managed_trades.json` and re
 
 ---
 
-## 9. Lessons Applied From the FX Trading Bot
-
-This bot was built after a sister project (an FX currency trading bot) had been running for several months. The following bugs were found in the FX bot and proactively fixed or verified in this gold bot before launch:
-
-| Issue | FX Bot Experience | Gold Bot Status |
-|---|---|---|
-| Trailing stop never firing | FX bot used entry price (not live price) to calculate profit — trailing stop activation threshold was never reached | Fixed: gold bot fetches live mid-price from Oanda's pricing endpoint |
-| Confluence gate always rejecting | FX bot parsed LLM text output (capped at 120 chars) to count confluences — always returned 1, never reached minimum 3 | Fixed: gold bot reads directly from the computed indicators dict |
-| Reviewer approving on error | FX bot reviewer returned APPROVED on transient network errors — all trades passed unreviewed | Fixed: any reviewer error returns REJECTED |
-| Empty LLM response crash | Provider sometimes returned empty response list — accessing `[0]` crashed the bot | Fixed: guard checks `len(response.choices) > 0` before accessing |
-| Break-even SL moving wrong way | FX bot moved SL DOWN on BUY trades (increasing risk instead of locking profit) | Verified correct: gold bot moves SL UP for BUY, DOWN for SELL |
-| Timezone crash in suspension manager | Comparing naive datetime to timezone-aware datetime crashed with TypeError every time suspension tried to resume | Fixed: all datetime comparisons use timezone-aware UTC objects |
-| Price formatting OANDA rejection | `str(float)` produced `3285.0000000000003` — OANDA rejected the order | Fixed: gold bot has `_fmt_price()` formatting all prices to 2 decimal places |
-| Stale evaluated trades set (memory leak) | FX news watcher never cleared its "already evaluated" set — trades got permanently excluded after one transient error | Fixed: gold bot clears the set at the start of every check cycle |
-| Logger duplicate handlers | Each new TradeLogger instance added another file handler — log lines duplicated on each restart | Fixed: gold bot checks for existing file handler before adding a new one |
-| Naive UTC clock for daily loss reset | Using local system clock instead of UTC meant daily loss reset at wrong time if server timezone ≠ UTC | Fixed: daily loss calculation uses `datetime.now(timezone.utc).date()` |
-
----
-
-## 10. Key Numbers at a Glance
+## 9. Key Numbers at a Glance
 
 | Parameter | Value | What It Means |
 |---|---|---|
@@ -341,6 +322,3 @@ This bot was built after a sister project (an FX currency trading bot) had been 
 
 ---
 
-*Last updated: 2026-05-18*
-*Strategy source: Uncle Lim XAUUSD signals corpus (745 signals, May 2024–May 2026)*
-*Verified win rate: 54.8% (BUY 88.9% in bull market conditions)*
