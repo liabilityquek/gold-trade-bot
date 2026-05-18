@@ -17,7 +17,4 @@ COPY . .
 # Create runtime directories
 RUN mkdir -p data logs
 
-RUN useradd -m -u 1000 botuser && chown -R botuser:botuser /app
-USER botuser
-
 CMD ["python", "src/main.py", "--live"]
