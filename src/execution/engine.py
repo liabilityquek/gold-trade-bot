@@ -267,7 +267,7 @@ class TradingEngine:
             daily_loss_pct = (
                 (self._daily_loss_start_balance - account.nav) / self._daily_loss_start_balance
             )
-            if daily_loss_pct >= settings.MAX_DAILY_LOSS_PERCENT:
+            if daily_loss_pct >= settings.MAX_DAILY_DRAWDOWN:
                 self.logger.critical(
                     f"Daily loss limit reached ({daily_loss_pct:.1%}) — halting new trades today"
                 )
