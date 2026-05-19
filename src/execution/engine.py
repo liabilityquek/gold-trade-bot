@@ -420,7 +420,7 @@ class TradingEngine:
 
         # RR validation
         tp_distance = abs(take_profit - entry_price)
-        rr_ratio = tp_distance / sl_distance if sl_distance > 0 else 0.0
+        rr_ratio = round(tp_distance / sl_distance, 4) if sl_distance > 0 else 0.0
         if rr_ratio < settings.MIN_RR_RATIO:
             self.logger.info(
                 f"{_INSTRUMENT}: REJECTED — poor RR ({rr_ratio:.2f} < {settings.MIN_RR_RATIO:.2f})"
