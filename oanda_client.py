@@ -1,6 +1,6 @@
 """
 oanda_client.py — Oanda v20 REST API wrapper for XAU_USD trading.
-Practice account: api-fxpractice.oanda.com
+Environment (practice/live) read from OANDA_ENVIRONMENT in .env (defaults to practice).
 """
 
 import os
@@ -16,14 +16,13 @@ import oandapyV20.endpoints.positions as positions
 load_dotenv()
 
 INSTRUMENT = "XAU_USD"
-PRACTICE = True  # Switch to False for live account
 
 
 class OandaClient:
     def __init__(self):
         self.api_key    = os.environ["OANDA_API_KEY"]
         self.account_id = os.environ["OANDA_ACCOUNT_ID"]
-        env = "practice" if PRACTICE else "live"
+        env = os.getenv("OANDA_ENVIRONMENT", "practice")
         self.client = oandapyV20.API(access_token=self.api_key, environment=env)
 
     # ── Account ──────────────────────────────────────────────────────────────
@@ -71,7 +70,7 @@ class OandaClient:
         return candles
 
     def get_current_price(self, instrument=INSTRUMENT):
-        candles = self.get_candles(granularity="M1", count=1, instrument=instrument)
+        candles = self.get_candles(granularity="M1", count=2, instrument=instrument)
         if candles:
             return candles[-1]["close"]
         return None

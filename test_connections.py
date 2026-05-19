@@ -6,9 +6,9 @@ python test_connections.py
 """
 
 import os
-from dotenv import load_dotenv
+import dotenv
 
-load_dotenv()
+dotenv.load_dotenv()
 
 PASS = "[PASS]"
 FAIL = "[FAIL]"

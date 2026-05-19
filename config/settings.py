@@ -4,10 +4,10 @@ import os
 import re
 from pathlib import Path
 from typing import List
-from dotenv import load_dotenv
+import dotenv
 
 env_path = Path(__file__).parent.parent / '.env'
-load_dotenv(dotenv_path=env_path)
+dotenv.load_dotenv(dotenv_path=env_path)
 
 
 class Settings:
