@@ -471,13 +471,16 @@ class TradingEngine:
             return
 
         side = OrderSide.BUY if is_long else OrderSide.SELL
+        # Small positions (<4 units) can't scale out — close entire position at TP1.
+        # Larger positions use TP3 as broker safety net; monitor handles TP2 partial close.
+        broker_tp = take_profit if units < 4 else tp3
         try:
             trade_id = self.broker.place_market_order(
                 pair=_INSTRUMENT,
                 side=side,
                 units=units,
                 stop_loss=stop_loss,
-                take_profit=tp3,  # TP1+TP2 handled by monitor; TP3 is broker-side safety net
+                take_profit=broker_tp,
             )
         except Exception as exc:
             self.logger.error(f"{_INSTRUMENT}: order failed: {exc}")
