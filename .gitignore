@@ -57,6 +57,18 @@ output/
 .claude/
 
 # =============================================================================
+# RUFLO / CLAUDE-FLOW
+# =============================================================================
+# Runtime state — excluded; .claude-flow/config.yaml is tracked
+.claude-flow/data/
+.claude-flow/logs/
+.claude-flow/sessions/
+.claude-flow/agents/
+.claude-flow/
+.mcp.json
+.swarm/
+
+# =============================================================================
 # DATABASES
 # =============================================================================
 *.db

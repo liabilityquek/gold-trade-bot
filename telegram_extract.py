@@ -19,8 +19,8 @@ API_ID = int(os.environ["API_ID"])
 API_HASH = os.environ["API_HASH"]
 
 CHANNEL = "unclelimjourney"
-START_DATE = datetime(2024, 5, 16, tzinfo=timezone.utc)
-END_DATE = datetime(2026, 5, 16, tzinfo=timezone.utc)
+START_DATE = datetime(2020, 1, 1, tzinfo=timezone.utc)
+END_DATE = datetime(2026, 5, 21, tzinfo=timezone.utc)
 
 OUTPUT_DIR = Path("output")
 IMAGES_DIR = OUTPUT_DIR / "images"

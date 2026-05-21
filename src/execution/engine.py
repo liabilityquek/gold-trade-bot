@@ -636,9 +636,14 @@ class TradingEngine:
 
         if status.requires_shutdown:
             reason = status.shutdown_reason.value if status.shutdown_reason else "risk_limit"
-            self.logger.critical(f"Emergency shutdown: {reason} — closing all positions")
-            self.alert_manager.alert_emergency_stop(reason)
-            self.trade_manager.emergency_close_all(reason=reason)
+            open_positions = [p for p in positions if not p.is_flat]
+            if open_positions:
+                self.logger.critical(
+                    f"Emergency shutdown: {reason} — "
+                    f"{len(open_positions)} position(s) still open, closing"
+                )
+                self.trade_manager.emergency_close_all(reason=reason)
+            # else: positions already closed — stay silent
 
     # ------------------------------------------------------------------
     # SL/TP calculation — gold (USD/oz points)
