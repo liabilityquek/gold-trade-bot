@@ -477,7 +477,7 @@ class TradingEngine:
                 side=side,
                 units=units,
                 stop_loss=stop_loss,
-                take_profit=take_profit,
+                take_profit=tp3,  # TP1+TP2 handled by monitor; TP3 is broker-side safety net
             )
         except Exception as exc:
             self.logger.error(f"{_INSTRUMENT}: order failed: {exc}")

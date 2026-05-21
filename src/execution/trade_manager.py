@@ -52,6 +52,7 @@ class ManagedTrade:
     partial_closes: List[Dict] = field(default_factory=list)
     break_even_triggered: bool = False
     partial_tp_triggered: bool = False
+    tp2_triggered: bool = False
     atr_value: Optional[float] = None
     confidence: float = 0.0
     entry_reason: str = ""
@@ -222,6 +223,7 @@ class TradeManager:
             self._update_price_tracking(managed)
             self._check_break_even(managed)
             self._check_partial_tp(managed)
+            self._check_tp2(managed)
             if managed.trailing_stop_active:
                 result = self._check_trailing_stop(managed)
                 if result and result.action != TradeAction.NONE:
@@ -261,6 +263,7 @@ class TradeManager:
             managed.lowest_price  = persisted.get("lowest_price",  trade.entry_price)
             managed.break_even_triggered  = persisted.get("break_even_triggered",  False)
             managed.partial_tp_triggered  = persisted.get("partial_tp_triggered",  False)
+            managed.tp2_triggered         = persisted.get("tp2_triggered",         False)
             managed.atr_value = persisted.get("atr_value", None)
             self.logger.info(f"Restored persisted state for trade {trade.trade_id}")
         return managed
@@ -472,6 +475,43 @@ class TradeManager:
                     pass
 
     # ------------------------------------------------------------------
+    # TP2 — close 50% of remaining position when TP2 level is hit
+    # ------------------------------------------------------------------
+
+    def _check_tp2(self, managed: ManagedTrade) -> None:
+        if not managed.partial_tp_triggered:
+            return
+        if managed.tp2_triggered or managed.tp2 is None:
+            return
+        trade = managed.trade
+        current_price = trade.current_price
+        if current_price is None:
+            return
+        tp2_hit = (trade.is_long and current_price >= managed.tp2) or \
+                   (not trade.is_long and current_price <= managed.tp2)
+        if not tp2_hit:
+            return
+        remaining_units = abs(trade.units)
+        if remaining_units < 2:
+            # Position too small to split — broker TP3 order will close the remaining unit
+            return
+        close_units = int(remaining_units * 0.5)
+        success = self.broker.partial_close_trade(trade.trade_id, close_units)
+        if success:
+            managed.tp2_triggered = True
+            self.logger.info(
+                f"TP2 hit: {trade.pair} {trade.trade_id} — "
+                f"closed {close_units} oz @ {current_price:.2f}"
+            )
+            if self.alert_manager:
+                tp3_str = f"\nTP3 target: {managed.tp3:.2f}" if managed.tp3 else ""
+                self.alert_manager.send_alert(
+                    f"TP2 Hit — {trade.pair}\n"
+                    f"Closed {close_units} oz @ {current_price:.2f}{tp3_str}",
+                    priority='INFO',
+                )
+
+    # ------------------------------------------------------------------
     # Close operations
     # ------------------------------------------------------------------
 
@@ -613,6 +653,7 @@ class TradeManager:
                     "tp3": managed.tp3,
                     "break_even_triggered": managed.break_even_triggered,
                     "partial_tp_triggered": managed.partial_tp_triggered,
+                    "tp2_triggered": managed.tp2_triggered,
                     "atr_value": managed.atr_value,
                 }
             self._state_file.parent.mkdir(parents=True, exist_ok=True)
