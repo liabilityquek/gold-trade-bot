@@ -554,13 +554,11 @@ class TradeManager:
 
                 if self.alert_manager:
                     self.alert_manager.alert_trade_closed(
-                        pair=managed.trade.pair,
+                        trade_id=trade_id,
                         pnl=realized_pnl,
                         close_price=close_price,
                         entry_price=entry,
-                        stop_loss=sl,
-                        take_profit=tp,
-                        pips=points,
+                        points=points,
                         reason=reason_label,
                     )
             else:

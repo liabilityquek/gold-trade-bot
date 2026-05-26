@@ -602,13 +602,11 @@ class TradingEngine:
                 )
 
                 self.alert_manager.alert_trade_closed(
-                    pair=trade.pair,
+                    trade_id=trade_id,
                     pnl=realized_pnl,
                     close_price=close_price,
                     entry_price=trade.entry_price,
-                    stop_loss=trade.stop_loss,
-                    take_profit=trade.take_profit,
-                    pips=points_gained,
+                    points=points_gained,
                     reason=reason_label,
                 )
 
