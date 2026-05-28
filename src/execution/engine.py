@@ -667,7 +667,7 @@ class TradingEngine:
             self.logger.info(f"{_INSTRUMENT} ATR multiplier: {multiplier}x (ATR={atr_val:.2f})")
             sl_distance = atr_val * multiplier
         else:
-            sl_distance = float(settings.DEFAULT_STOP_LOSS_PIPS)  # fallback in points
+            sl_distance = float(settings.DEFAULT_ATR_POINTS)  # fallback in points
 
         # Enforce minimum SL distance (2 pts as per CLAUDE.md)
         sl_distance = max(sl_distance, 2.0)
