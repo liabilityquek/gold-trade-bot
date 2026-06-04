@@ -71,7 +71,10 @@ class TradingEngine:
         self.risk_validator = RiskValidator(self.logger)
         self.position_sizer = PositionSizer(self.logger)
         self.exposure_tracker = ExposureTracker(self.logger)
-        self.emergency_controller = EmergencyRiskController(logger=self.logger)
+        self.emergency_controller = EmergencyRiskController(
+            logger=self.logger,
+            max_daily_loss_percent=settings.MAX_DAILY_DRAWDOWN,
+        )
         self.trade_manager = TradeManager(
             broker=self.broker,
             logger=self.logger,
