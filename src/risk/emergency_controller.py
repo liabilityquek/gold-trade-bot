@@ -76,6 +76,9 @@ class EmergencyRiskController:
         self.daily_pnl_reset_date = None
         self.circuit_breaker_triggered = False
         self.shutdown_history: List[ShutdownReport] = []
+        # Suppresses repeat alert spam — alert text → last-logged timestamp
+        self._alert_last_logged: dict = {}
+        self._alert_resuppress_seconds: int = 3600
 
     def check_emergency_conditions(
         self,
@@ -182,13 +185,23 @@ class EmergencyRiskController:
             shutdown_reason=shutdown_reason,
         )
 
+        now_ts = datetime.now(timezone.utc).timestamp()
         for alert in alerts:
+            last = self._alert_last_logged.get(alert)
+            if last is not None and (now_ts - last) < self._alert_resuppress_seconds:
+                continue
+            self._alert_last_logged[alert] = now_ts
             if level == EmergencyLevel.PANIC:
                 self.logger.critical(alert)
             elif level == EmergencyLevel.CRITICAL:
                 self.logger.error(alert)
             else:
                 self.logger.warning(alert)
+
+        # Forget alerts that didn't fire this cycle so they can re-log if they return
+        active = set(alerts)
+        for stale in [k for k in self._alert_last_logged if k not in active]:
+            self._alert_last_logged.pop(stale, None)
 
         return status
 
