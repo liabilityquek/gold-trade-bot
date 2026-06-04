@@ -271,39 +271,44 @@ class UncLeLimAgent:
     # ------------------------------------------------------------------
 
     def _get_h4_bias(self, h4_candles: List[Dict]) -> str:
-        """Determine H4 trend bias: bullish / bearish / neutral."""
+        """Determine H4 trend bias: bullish / bearish / neutral.
+
+        BUY-side guardrail (gold bull market): bullish requires ema20>ema50
+        AND ema50>ema200 (or ema200 unavailable, fallback to structure check).
+        Bearish reverts to permissive EMA bias.
+        """
         if len(h4_candles) < 20:
             return "neutral"
         try:
             df = to_dataframe(h4_candles)
             ema20 = ema(df, 20)
             ema50 = ema(df, 50)
+            ema200 = ema(df, 200)  # None if < 205 candles
             if ema20 is None or ema50 is None:
                 return "neutral"
 
-            # Structure check: last 3 significant swings
             closes = [self._get_close(c) for c in h4_candles[-10:]]
             closes = [c for c in closes if c > 0]
-            if len(closes) < 6:
-                ema_bias = "bullish" if ema20 > ema50 else "bearish"
-                return ema_bias
+            structure_ok_bullish = False
+            if len(closes) >= 6:
+                recent_high = max(closes[-3:])
+                prev_high = max(closes[-6:-3])
+                recent_low = min(closes[-3:])
+                prev_low = min(closes[-6:-3])
+                structure_ok_bullish = (
+                    recent_high > prev_high or recent_low >= prev_low * 0.998
+                )
 
-            # Simple HH/HL detection via EMA alignment + price direction
-            recent_high = max(closes[-3:])
-            prev_high = max(closes[-6:-3])
-            recent_low = min(closes[-3:])
-            prev_low = min(closes[-6:-3])
-
+            # BULLISH — EMA short>medium, and long-term regime not bearish
             if ema20 > ema50:
-                # Bullish: confirm HH and HL
-                if recent_high > prev_high and recent_low >= prev_low * 0.998:
+                if ema200 is None or ema50 > ema200:
                     return "bullish"
-                return "bullish"  # EMA bias sufficient
-            else:
-                # Bearish: confirm LL and LH
-                if recent_high <= prev_high * 1.002 and recent_low < prev_low:
-                    return "bearish"
-                return "bearish"  # EMA bias sufficient
+                if structure_ok_bullish:
+                    return "bullish"
+                return "neutral"
+
+            # BEARISH — permissive EMA bias
+            return "bearish"
         except Exception:
             return "neutral"
 

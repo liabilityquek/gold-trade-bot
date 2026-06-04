@@ -142,7 +142,7 @@ class Settings:
     # ==========================================
     # MULTI-TIMEFRAME CANDLE COUNTS
     # ==========================================
-    H4_CANDLE_COUNT: int = int(os.getenv('H4_CANDLE_COUNT', '80'))
+    H4_CANDLE_COUNT: int = int(os.getenv('H4_CANDLE_COUNT', '220'))
     M30_CANDLE_COUNT: int = int(os.getenv('M30_CANDLE_COUNT', '30'))
     M15_CANDLE_COUNT: int = int(os.getenv('M15_CANDLE_COUNT', '20'))
     M5_CANDLE_COUNT: int = int(os.getenv('M5_CANDLE_COUNT', '15'))
