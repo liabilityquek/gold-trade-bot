@@ -144,6 +144,12 @@ class DecisionEngine:
             return result
 
         # 6. Reviewer
+        # Uncle Lim is the strategic source of truth for setup classification.
+        # Override the LLM analyst's guessed setup_type so the reviewer doesn't
+        # reject on a label mismatch between Uncle Lim and the analyst.
+        if uncle_lim_vote.setup_type and uncle_lim_vote.setup_type != "NONE":
+            llm_vote.setup_type = uncle_lim_vote.setup_type
+
         review: ReviewResult = self._reviewer.review(
             pair, candles, price, indicators, llm_vote
         )
