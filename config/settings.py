@@ -55,7 +55,6 @@ class Settings:
     # ==========================================
     MAX_DAILY_DRAWDOWN: float = float(os.getenv('MAX_DAILY_DRAWDOWN', '0.05'))
     MAX_CONSECUTIVE_LOSSES: int = int(os.getenv('MAX_CONSECUTIVE_LOSSES', '5'))
-    CIRCUIT_BREAKER_COOLDOWN_MINUTES: int = int(os.getenv('CIRCUIT_BREAKER_COOLDOWN_MINUTES', '60'))
     MAX_ORDERS_PER_MINUTE: int = int(os.getenv('MAX_ORDERS_PER_MINUTE', '10'))
 
     # Gold market hours: Sun 22:00–Fri 21:00 UTC
