@@ -47,7 +47,7 @@ class OrderRequest:
     strategy_name: str = ""
     signal_id: str = ""
     expected_price: Optional[float] = None
-    max_slippage_points: float = 2.0    # USD/oz (gold: $2/oz max slippage)
+    max_slippage_points: float = settings.MAX_SLIPPAGE_POINTS    # USD/oz (gold: $2/oz max slippage)
 
     def __post_init__(self):
         if not self.signal_id:
@@ -116,7 +116,7 @@ class OrderExecutor:
 
         self._rate_limit_lock = threading.Lock()
         self._order_timestamps: deque = deque()
-        self._max_orders_per_minute: int = 10
+        self._max_orders_per_minute: int = settings.MAX_ORDERS_PER_MINUTE
 
         self._circuit_open: bool = False
         self._circuit_open_time: Optional[datetime] = None

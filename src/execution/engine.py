@@ -39,6 +39,7 @@ from src.risk import (
 )
 from src.risk.emergency_controller import EmergencyRiskController
 from src.execution.trade_manager import TradeManager
+from src.execution.order_executor import OrderExecutor, OrderRequest, OrderType
 from src.voting.engine import DecisionResult, DecisionEngine
 from src.agents.base import Signal
 from src.news.suspension_manager import SuspensionManager
@@ -79,6 +80,14 @@ class TradingEngine:
             broker=self.broker,
             logger=self.logger,
             alert_manager=self.alert_manager,
+        )
+        self.order_executor = OrderExecutor(
+            broker=self.broker,
+            logger=self.logger,
+            max_retries=settings.ORDER_MAX_RETRIES,
+            initial_retry_delay=settings.ORDER_RETRY_INITIAL_DELAY_SECONDS,
+            max_retry_delay=settings.ORDER_RETRY_MAX_DELAY_SECONDS,
+            backoff_multiplier=settings.ORDER_RETRY_BACKOFF_MULTIPLIER,
         )
 
         self.suspension_manager = (
@@ -477,23 +486,45 @@ class TradingEngine:
         # Small positions (<4 units) can't scale out — close entire position at TP1.
         # Larger positions use TP3 as broker safety net; monitor handles TP2 partial close.
         broker_tp = take_profit if units < 4 else tp3
-        try:
-            trade_id = self.broker.place_market_order(
+
+        # Stable per-decision id: same bar + direction can't double-fire, but a
+        # fresh candle can re-enter. Falls back to cycle count if candle has no time.
+        last_candle = candles[-1] if candles else {}
+        candle_time = last_candle.get('time') or last_candle.get('timestamp')
+        signal_id = (
+            f"{_INSTRUMENT}-{candle_time}-{result.final_signal.value}"
+            if candle_time else
+            f"{_INSTRUMENT}-{self._cycle_count}-{result.final_signal.value}"
+        )
+
+        # Route through OrderExecutor for circuit-breaker, rate-limit, slippage
+        # tracking and duplicate-signal protection.
+        exec_result = self.order_executor.execute(
+            OrderRequest(
                 pair=_INSTRUMENT,
                 side=side,
                 units=units,
+                order_type=OrderType.MARKET,
                 stop_loss=stop_loss,
                 take_profit=broker_tp,
+                expected_price=entry_price,
+                signal_id=signal_id,
+                strategy_name=f"uncle_lim_{result.setup_type.lower()}",
             )
-        except Exception as exc:
-            self.logger.error(f"{_INSTRUMENT}: order failed: {exc}")
+        )
+
+        if not exec_result.success:
+            self.logger.error(f"{_INSTRUMENT}: order failed: {exec_result.error_message}")
             return
 
+        trade_id = exec_result.trade_id
         if trade_id:
             self.logger.info(
-                f"{_INSTRUMENT}: order filled | trade_id={trade_id} entry~{entry_price:.2f}"
+                f"{_INSTRUMENT}: order filled | trade_id={trade_id} "
+                f"entry~{(exec_result.fill_price or entry_price):.2f} "
+                f"slippage={exec_result.slippage_points:+.2f} pts"
             )
-            filled_price = entry_price
+            filled_price = exec_result.fill_price or entry_price
             placed_trade = None
             for t in self.broker.get_open_trades():
                 if t.trade_id == trade_id:

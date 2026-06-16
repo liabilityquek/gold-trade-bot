@@ -175,6 +175,15 @@ class Settings:
     CIRCUIT_BREAKER_COOLDOWN_SECONDS: float = float(os.getenv('CIRCUIT_BREAKER_COOLDOWN_SECONDS', '60.0'))
 
     # ==========================================
+    # ORDER EXECUTOR (retries + slippage)
+    # ==========================================
+    ORDER_MAX_RETRIES: int = int(os.getenv('ORDER_MAX_RETRIES', '3'))
+    ORDER_RETRY_INITIAL_DELAY_SECONDS: float = float(os.getenv('ORDER_RETRY_INITIAL_DELAY_SECONDS', '1.0'))
+    ORDER_RETRY_MAX_DELAY_SECONDS: float = float(os.getenv('ORDER_RETRY_MAX_DELAY_SECONDS', '30.0'))
+    ORDER_RETRY_BACKOFF_MULTIPLIER: float = float(os.getenv('ORDER_RETRY_BACKOFF_MULTIPLIER', '2.0'))
+    MAX_SLIPPAGE_POINTS: float = float(os.getenv('MAX_SLIPPAGE_POINTS', '2.0'))
+
+    # ==========================================
     # MACRO CONTEXT THRESHOLDS
     # ==========================================
     MACRO_REAL_YIELD_BEARISH_THRESHOLD: float = float(os.getenv('MACRO_REAL_YIELD_BEARISH_THRESHOLD', '1.5'))
