@@ -2,8 +2,9 @@
 
 Gold-specific adaptations:
   - pip_size = 1.0 (USD/oz points — no JPY branch needed)
-  - Break-even: at 5 pts profit → SL to entry + 1 pt + 50% partial close
-  - Trailing stop: at 7 pts profit → trail ATR×1.5 behind price peak
+  - Break-even: ATR-scaled (arm ~1.5xATR profit -> SL to entry +/- 0.5xATR)
+    + 50% partial close; fixed-point fallback when ATR is unavailable
+  - Trailing stop: after TRAILING_STOP_ACTIVATION_POINTS profit -> trail ATRx1.5 behind peak
   - Three TP levels: tp1, tp2, tp3 (tracked in ManagedTrade)
   - All price comparisons in USD/oz (e.g. 3285.00)
 """
@@ -101,10 +102,11 @@ class TradeManager:
         self._load_state()
 
         self.trailing_stop_enabled = True
-        # Gold: all thresholds in USD/oz points (not pips)
-        self.trailing_stop_activation_points = settings.TRAILING_STOP_ACTIVATION_POINTS  # 7.0
-        self.break_even_activation_points = settings.BREAK_EVEN_ACTIVATION_POINTS        # 5.0
-        self.break_even_buffer_points = settings.BREAK_EVEN_BUFFER_POINTS                # 1.0
+        # Gold: all thresholds in USD/oz points (not pips). Break-even/trailing are
+        # ATR-scaled at runtime; these *_points values are the fixed fallback when ATR is absent.
+        self.trailing_stop_activation_points = settings.TRAILING_STOP_ACTIVATION_POINTS
+        self.break_even_activation_points = settings.BREAK_EVEN_ACTIVATION_POINTS
+        self.break_even_buffer_points = settings.BREAK_EVEN_BUFFER_POINTS
         self.max_trade_age_hours = settings.MAX_TRADE_AGE_HOURS
 
     def register_trade(
@@ -299,7 +301,7 @@ class TradeManager:
             profit_points = trade.entry_price - trade.current_price
             new_sl = managed.lowest_price + trail_distance
 
-        # Only activate after minimum profit threshold (7 pts)
+        # Only activate after the configured profit threshold (TRAILING_STOP_ACTIVATION_POINTS)
         if profit_points < self.trailing_stop_activation_points:
             return None
 
@@ -352,8 +354,29 @@ class TradeManager:
         return None
 
     # ------------------------------------------------------------------
-    # Break-even — at 5 pts profit → SL to entry + 1 pt + 50% partial close
+    # Break-even — at ~1.5×ATR profit → SL to entry ± 0.5×ATR + 50% partial close
+    # (ATR-scaled so the lock sits outside gold's noise band; fixed-point fallback)
     # ------------------------------------------------------------------
+
+    def _break_even_activation(self, managed: ManagedTrade) -> float:
+        """Profit (USD/oz) required to arm break-even. ATR-scaled, fixed fallback."""
+        atr = managed.atr_value
+        if atr and atr > 0:
+            return atr * settings.BREAK_EVEN_ACTIVATION_ATR_MULT
+        return self.break_even_activation_points
+
+    def _break_even_buffer(self, managed: ManagedTrade) -> float:
+        """Distance (USD/oz) the locked SL sits from entry. ATR-scaled, fixed fallback."""
+        atr = managed.atr_value
+        if atr and atr > 0:
+            return atr * settings.BREAK_EVEN_BUFFER_ATR_MULT
+        return self.break_even_buffer_points
+
+    def _break_even_sl(self, managed: ManagedTrade) -> float:
+        """Break-even SL price: entry + buffer (BUY) or entry - buffer (SELL)."""
+        trade = managed.trade
+        buf = self._break_even_buffer(managed)
+        return trade.entry_price + buf if trade.is_long else trade.entry_price - buf
 
     def _check_break_even(self, managed: ManagedTrade) -> None:
         if managed.break_even_triggered:
@@ -365,16 +388,15 @@ class TradeManager:
         else:
             profit_points = trade.entry_price - trade.current_price
 
-        if profit_points < self.break_even_activation_points:
+        if profit_points < self._break_even_activation(managed):
             return
 
         # Move SL to break-even: entry + buffer (BUY) or entry - buffer (SELL)
+        new_sl = self._break_even_sl(managed)
         if trade.is_long:
-            new_sl = trade.entry_price + self.break_even_buffer_points
             if trade.stop_loss and new_sl <= trade.stop_loss:
                 return
         else:
-            new_sl = trade.entry_price - self.break_even_buffer_points
             if trade.stop_loss and new_sl >= trade.stop_loss:
                 return
 
@@ -447,9 +469,8 @@ class TradeManager:
         success = self.broker.partial_close_trade(trade.trade_id, units_to_close)
         if success:
             managed.partial_tp_triggered = True
-            # Also move SL to break-even immediately
-            new_sl = (trade.entry_price + self.break_even_buffer_points if trade.is_long
-                      else trade.entry_price - self.break_even_buffer_points)
+            # Also move SL to break-even immediately (ATR-scaled, shared with _check_break_even)
+            new_sl = self._break_even_sl(managed)
             sl_moved = self.broker.modify_trade(
                 trade_id=trade.trade_id,
                 pair=trade.pair,

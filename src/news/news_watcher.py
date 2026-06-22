@@ -175,9 +175,10 @@ class NewsWatcher:
             )
             return
 
-        # Move SL to break-even — gold: buffer in USD/oz points
+        # Move SL to break-even — gold: fixed buffer in USD/oz points.
+        # News path stays fixed (deliberate risk-off; no managed ATR here), unlike
+        # the ATR-scaled break-even in TradeManager.
         try:
-            # BREAK_EVEN_BUFFER_POINTS = 1.0 USD/oz
             buf = settings.BREAK_EVEN_BUFFER_POINTS
             if trade.side == OrderSide.BUY:
                 be_sl = trade.entry_price + buf

@@ -84,14 +84,18 @@ class Settings:
     TRAILING_STOP_ACTIVATION_POINTS: float = float(os.getenv('TRAILING_STOP_ACTIVATION_POINTS', '7.0'))
     TRAILING_ATR_MULTIPLIER: float = float(os.getenv('TRAILING_ATR_MULTIPLIER', '1.5'))
 
-    # Break-even — gold points
+    # Break-even — gold points (fixed fallback used only when ATR is unavailable)
     BREAK_EVEN_ACTIVATION_POINTS: float = float(os.getenv('BREAK_EVEN_ACTIVATION_POINTS', '5.0'))
     BREAK_EVEN_BUFFER_POINTS: float = float(os.getenv('BREAK_EVEN_BUFFER_POINTS', '1.0'))
+    # Break-even ATR scaling (gold). Arm at ACTIVATION_MULT×ATR profit, lock at BUFFER_MULT×ATR.
+    # Activation must stay above buffer (equal values = zero breathing room = instant stop-out).
+    BREAK_EVEN_ACTIVATION_ATR_MULT: float = float(os.getenv('BREAK_EVEN_ACTIVATION_ATR_MULT', '1.5'))
+    BREAK_EVEN_BUFFER_ATR_MULT: float = float(os.getenv('BREAK_EVEN_BUFFER_ATR_MULT', '0.5'))
 
     # Partial take-profits
     PARTIAL_TP_ENABLED: bool = os.getenv('PARTIAL_TP_ENABLED', 'true').lower() == 'true'
     PARTIAL_TP_RATIO: float = float(os.getenv('PARTIAL_TP_RATIO', '0.5'))
-    PARTIAL_TP_RR_TARGET: float = float(os.getenv('PARTIAL_TP_RR_TARGET', '1.0'))
+    PARTIAL_TP_RR_TARGET: float = float(os.getenv('PARTIAL_TP_RR_TARGET', '1.5'))
 
     # ==========================================
     # MONITORING & ALERTS (Telegram)
