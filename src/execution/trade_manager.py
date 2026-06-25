@@ -4,7 +4,7 @@ Gold-specific adaptations:
   - pip_size = 1.0 (USD/oz points — no JPY branch needed)
   - Break-even: ATR-scaled (arm ~1.5xATR profit -> SL to entry +/- 0.5xATR)
     + 50% partial close; fixed-point fallback when ATR is unavailable
-  - Trailing stop: after TRAILING_STOP_ACTIVATION_POINTS profit -> trail ATRx1.5 behind peak
+  - Trailing stop: after ~TRAILING_ACTIVATION_ATR_MULTxATR profit (fixed-point fallback) -> trail ATRx1.5 behind peak
   - Three TP levels: tp1, tp2, tp3 (tracked in ManagedTrade)
   - All price comparisons in USD/oz (e.g. 3285.00)
 """
@@ -285,12 +285,19 @@ class TradeManager:
     # Trailing stop — gold: USD/oz points (not pips)
     # ------------------------------------------------------------------
 
+    def _trailing_activation(self, managed: ManagedTrade) -> float:
+        """Profit (USD/oz) required to arm the trailing stop. ATR-scaled, fixed fallback."""
+        atr = managed.atr_value
+        if atr and atr > 0:
+            return atr * settings.TRAILING_ACTIVATION_ATR_MULT
+        return self.trailing_stop_activation_points
+
     def _check_trailing_stop(self, managed: ManagedTrade) -> Optional[TradeManagementResult]:
         trade = managed.trade
 
-        # Trail distance: ATR×1.5 if available, else fixed activation threshold
+        # Trail distance: ATR×mult if available, else fixed activation threshold
         if managed.atr_value and managed.atr_value > 0:
-            trail_distance = managed.atr_value * 1.5  # USD/oz
+            trail_distance = managed.atr_value * settings.TRAILING_ATR_MULTIPLIER  # USD/oz
         else:
             trail_distance = self.trailing_stop_activation_points * _GOLD_POINT  # fallback
 
@@ -301,8 +308,8 @@ class TradeManager:
             profit_points = trade.entry_price - trade.current_price
             new_sl = managed.lowest_price + trail_distance
 
-        # Only activate after the configured profit threshold (TRAILING_STOP_ACTIVATION_POINTS)
-        if profit_points < self.trailing_stop_activation_points:
+        # Only activate after the ATR-scaled profit threshold (fixed-point fallback)
+        if profit_points < self._trailing_activation(managed):
             return None
 
         current_sl = trade.stop_loss

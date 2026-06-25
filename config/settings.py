@@ -83,6 +83,10 @@ class Settings:
     # Trailing stop — gold uses USD/oz points (not pips)
     TRAILING_STOP_ACTIVATION_POINTS: float = float(os.getenv('TRAILING_STOP_ACTIVATION_POINTS', '7.0'))
     TRAILING_ATR_MULTIPLIER: float = float(os.getenv('TRAILING_ATR_MULTIPLIER', '1.5'))
+    # Trailing activation ATR scaling (gold). Arm trailing at ACTIVATION_MULT×ATR profit;
+    # fixed TRAILING_STOP_ACTIVATION_POINTS used only when ATR is unavailable.
+    # Keep ≥ BREAK_EVEN_ACTIVATION_ATR_MULT so break-even locks before trailing takes over.
+    TRAILING_ACTIVATION_ATR_MULT: float = float(os.getenv('TRAILING_ACTIVATION_ATR_MULT', '2.0'))
 
     # Break-even — gold points (fixed fallback used only when ATR is unavailable)
     BREAK_EVEN_ACTIVATION_POINTS: float = float(os.getenv('BREAK_EVEN_ACTIVATION_POINTS', '5.0'))
