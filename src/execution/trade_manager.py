@@ -47,7 +47,6 @@ class ManagedTrade:
     tp2: Optional[float] = None
     tp3: Optional[float] = None
     trailing_stop_active: bool = False
-    trailing_stop_distance: float = 0.0
     highest_price: float = 0.0
     lowest_price: float = 0.0
     partial_closes: List[Dict] = field(default_factory=list)
@@ -114,7 +113,6 @@ class TradeManager:
         trade: Trade,
         strategy_name: str = "",
         trailing_stop: bool = False,
-        trailing_distance: float = 0.0,
         confidence: float = 0.0,
         entry_reason: str = "",
         setup_type: str = "NONE",
@@ -132,7 +130,6 @@ class TradeManager:
             tp2=tp2,
             tp3=tp3,
             trailing_stop_active=trailing_stop,
-            trailing_stop_distance=trailing_distance,
             highest_price=trade.entry_price,
             lowest_price=trade.entry_price,
             confidence=confidence,
@@ -256,7 +253,6 @@ class TradeManager:
             tp2=persisted.get("tp2"),
             tp3=persisted.get("tp3"),
             trailing_stop_active=persisted.get("trailing_stop_active", False),
-            trailing_stop_distance=persisted.get("trailing_stop_distance", 0.0),
             highest_price=trade.entry_price,
             lowest_price=trade.entry_price,
         )
@@ -658,7 +654,6 @@ class TradeManager:
                 data[trade_id] = {
                     "strategy_name": managed.strategy_name,
                     "trailing_stop_active": managed.trailing_stop_active,
-                    "trailing_stop_distance": managed.trailing_stop_distance,
                     "highest_price": managed.highest_price,
                     "lowest_price": managed.lowest_price,
                     "initial_sl": managed.initial_sl,

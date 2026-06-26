@@ -539,7 +539,6 @@ class TradingEngine:
                     placed_trade,
                     strategy_name=f"uncle_lim_{result.setup_type.lower()}",
                     trailing_stop=True,
-                    trailing_distance=self.trade_manager.trailing_stop_activation_points,
                     confidence=result.confidence,
                     entry_reason=result.llm_reasoning,
                     setup_type=result.setup_type,

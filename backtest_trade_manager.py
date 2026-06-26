@@ -412,7 +412,6 @@ def simulate_one(prep, mode):
     )
     tm.register_trade(
         sim.as_base_trade(tid), strategy_name="bt", trailing_stop=True,
-        trailing_distance=tm.trailing_stop_activation_points,
         tp2=prep["tp2"], tp3=prep["tp3"],
     )
     if prep["atr"]:
