@@ -62,6 +62,7 @@ class KillSwitch:
             self._activated_at = datetime.now(timezone.utc)
 
         try:
+            self.KILL_FILE.parent.mkdir(parents=True, exist_ok=True)
             self.KILL_FILE.write_text(
                 f"activated: {datetime.now(timezone.utc).isoformat()}Z\nreason: {reason}\n",
                 encoding="utf-8"
