@@ -17,6 +17,7 @@ import logging
 import os
 import threading
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -372,6 +373,21 @@ def _build_analyst_message(
             f"Uncle Lim strategy reference posts (sample):\n"
             f"{sample_text}\n\n"
         )
+
+    # Shadow-mode learning: observational historical prior + reflection rules.
+    # Never influences confidence/gating here — it's prompt context only.
+    if settings.LEARNING_ENABLED:
+        try:
+            from src.learning.experience_store import get_experience_store
+            block = get_experience_store().prompt_block(
+                indicators.get("uncle_lim_signal", "HOLD"),
+                indicators.get("uncle_lim_setup_type", "NONE"),
+                datetime.now(timezone.utc).hour,
+            )
+            if block:
+                msg += block + "\n\n"
+        except Exception:
+            pass
 
     msg += "Based on the above, provide your XAU/USD trading signal as JSON."
     return msg

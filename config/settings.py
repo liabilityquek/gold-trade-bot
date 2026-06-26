@@ -80,6 +80,16 @@ class Settings:
     MIN_CONFLUENCES: int = int(os.getenv('MIN_CONFLUENCES', '3'))
     MIN_RR_RATIO: float = float(os.getenv('MIN_RR_RATIO', '1.5'))
 
+    # LEARNING / EXPERIENCE BRAIN (shadow mode — observe-only)
+    # Records entries/outcomes and injects a historical prior + reflection rules
+    # into the analyst prompt as observational context. Does NOT change
+    # confidence or gate trades. Flip to active influence later behind a flag.
+    LEARNING_ENABLED: bool = os.getenv('LEARNING_ENABLED', 'true').lower() == 'true'
+    LEARNING_MIN_SAMPLE: int = int(os.getenv('LEARNING_MIN_SAMPLE', '8'))
+    LEARNING_RECALL_HOUR_WINDOW: int = int(os.getenv('LEARNING_RECALL_HOUR_WINDOW', '2'))
+    LEARNING_REFLECTION_MIN_TRADES: int = int(os.getenv('LEARNING_REFLECTION_MIN_TRADES', '20'))
+    LEARNING_REFLECTION_MAX_RULES: int = int(os.getenv('LEARNING_REFLECTION_MAX_RULES', '6'))
+
     # Trailing stop — gold uses fixed USD/oz points (pips); triggers are pip-based
     TRAILING_STOP_ACTIVATION_POINTS: float = float(os.getenv('TRAILING_STOP_ACTIVATION_POINTS', '7.0'))
     TRAILING_DISTANCE_POINTS: float = float(os.getenv('TRAILING_DISTANCE_POINTS', '7.0'))

@@ -33,8 +33,12 @@ ENV/
 # =============================================================================
 # RUNTIME STATE
 # =============================================================================
-data/managed_trades.json   # trailing stop state — regenerated at runtime
-data/KILL_SWITCH            # emergency sentinel file
+# trailing stop state — regenerated at runtime
+data/managed_trades.json
+# emergency sentinel file
+data/KILL_SWITCH
+# learning brain store — seeded via seed_experience_store.py, mutated at runtime
+data/experience_store.json
 logs/
 *.log
 

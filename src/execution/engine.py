@@ -550,6 +550,20 @@ class TradingEngine:
                 if atr_val and atr_val > 0:
                     self.trade_manager.update_trade_atr(trade_id, atr_val)
 
+                if settings.LEARNING_ENABLED:
+                    try:
+                        from src.learning.experience_store import get_experience_store
+                        get_experience_store().record_entry(
+                            trade_id,
+                            result.final_signal,
+                            result.setup_type,
+                            indicators=result.indicators,
+                            confidence=result.confidence,
+                            rr=rr_ratio,
+                        )
+                    except Exception as exc:
+                        self.logger.debug(f"learning record_entry failed: {exc}")
+
             self._send_trade_alert(
                 result, filled_price, stop_loss, take_profit, tp2, tp3, units,
                 sl_distance, rr_ratio,
@@ -642,6 +656,27 @@ class TradingEngine:
                     points=points_gained,
                     reason=reason_label,
                 )
+
+                if settings.LEARNING_ENABLED:
+                    try:
+                        from src.learning.experience_store import get_experience_store
+                        hold_hours = None
+                        open_time = getattr(trade, 'open_time', None)
+                        if open_time is not None:
+                            try:
+                                hold_hours = (
+                                    datetime.now(open_time.tzinfo) - open_time
+                                ).total_seconds() / 3600.0
+                            except Exception:
+                                hold_hours = None
+                        get_experience_store().record_outcome(
+                            trade_id,
+                            pnl=realized_pnl,
+                            close_reason=raw_reason,
+                            hold_hours=hold_hours,
+                        )
+                    except Exception as exc:
+                        self.logger.debug(f"learning record_outcome failed: {exc}")
 
                 self.trade_manager.unregister_trade(trade_id)
                 with self._trades_lock:
