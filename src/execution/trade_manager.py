@@ -2,9 +2,9 @@
 
 Gold-specific adaptations:
   - pip_size = 1.0 (USD/oz points — no JPY branch needed)
-  - Break-even: ATR-scaled (arm ~1.5xATR profit -> SL to entry +/- 0.5xATR)
-    + 50% partial close; fixed-point fallback when ATR is unavailable
-  - Trailing stop: after ~TRAILING_ACTIVATION_ATR_MULTxATR profit (fixed-point fallback) -> trail ATRx1.5 behind peak
+  - Break-even: at BREAK_EVEN_ACTIVATION_POINTS profit -> SL to entry +/- BREAK_EVEN_BUFFER_POINTS
+    + 50% partial close (fixed pip thresholds)
+  - Trailing stop: after TRAILING_STOP_ACTIVATION_POINTS profit -> trail TRAILING_DISTANCE_POINTS behind peak
   - Three TP levels: tp1, tp2, tp3 (tracked in ManagedTrade)
   - All price comparisons in USD/oz (e.g. 3285.00)
 """
@@ -102,8 +102,8 @@ class TradeManager:
         self._load_state()
 
         self.trailing_stop_enabled = True
-        # Gold: all thresholds in USD/oz points (not pips). Break-even/trailing are
-        # ATR-scaled at runtime; these *_points values are the fixed fallback when ATR is absent.
+        # Gold: all thresholds in USD/oz points (pips). Break-even/trailing trigger
+        # off these fixed point values.
         self.trailing_stop_activation_points = settings.TRAILING_STOP_ACTIVATION_POINTS
         self.break_even_activation_points = settings.BREAK_EVEN_ACTIVATION_POINTS
         self.break_even_buffer_points = settings.BREAK_EVEN_BUFFER_POINTS
@@ -286,20 +286,14 @@ class TradeManager:
     # ------------------------------------------------------------------
 
     def _trailing_activation(self, managed: ManagedTrade) -> float:
-        """Profit (USD/oz) required to arm the trailing stop. ATR-scaled, fixed fallback."""
-        atr = managed.atr_value
-        if atr and atr > 0:
-            return atr * settings.TRAILING_ACTIVATION_ATR_MULT
+        """Profit (USD/oz) required to arm the trailing stop. Fixed pip threshold."""
         return self.trailing_stop_activation_points
 
     def _check_trailing_stop(self, managed: ManagedTrade) -> Optional[TradeManagementResult]:
         trade = managed.trade
 
-        # Trail distance: ATR×mult if available, else fixed activation threshold
-        if managed.atr_value and managed.atr_value > 0:
-            trail_distance = managed.atr_value * settings.TRAILING_ATR_MULTIPLIER  # USD/oz
-        else:
-            trail_distance = self.trailing_stop_activation_points * _GOLD_POINT  # fallback
+        # Trail distance: fixed pip value (USD/oz)
+        trail_distance = settings.TRAILING_DISTANCE_POINTS * _GOLD_POINT
 
         if trade.is_long:
             profit_points = trade.current_price - trade.entry_price
@@ -308,7 +302,7 @@ class TradeManager:
             profit_points = trade.entry_price - trade.current_price
             new_sl = managed.lowest_price + trail_distance
 
-        # Only activate after the ATR-scaled profit threshold (fixed-point fallback)
+        # Only activate after the fixed pip profit threshold
         if profit_points < self._trailing_activation(managed):
             return None
 
@@ -361,22 +355,16 @@ class TradeManager:
         return None
 
     # ------------------------------------------------------------------
-    # Break-even — at ~1.5×ATR profit → SL to entry ± 0.5×ATR + 50% partial close
-    # (ATR-scaled so the lock sits outside gold's noise band; fixed-point fallback)
+    # Break-even — at BREAK_EVEN_ACTIVATION_POINTS profit → SL to entry ± BREAK_EVEN_BUFFER_POINTS
+    # + 50% partial close (fixed pip thresholds — gold USD/oz)
     # ------------------------------------------------------------------
 
     def _break_even_activation(self, managed: ManagedTrade) -> float:
-        """Profit (USD/oz) required to arm break-even. ATR-scaled, fixed fallback."""
-        atr = managed.atr_value
-        if atr and atr > 0:
-            return atr * settings.BREAK_EVEN_ACTIVATION_ATR_MULT
+        """Profit (USD/oz) required to arm break-even. Fixed pip threshold."""
         return self.break_even_activation_points
 
     def _break_even_buffer(self, managed: ManagedTrade) -> float:
-        """Distance (USD/oz) the locked SL sits from entry. ATR-scaled, fixed fallback."""
-        atr = managed.atr_value
-        if atr and atr > 0:
-            return atr * settings.BREAK_EVEN_BUFFER_ATR_MULT
+        """Distance (USD/oz) the locked SL sits from entry. Fixed pip value."""
         return self.break_even_buffer_points
 
     def _break_even_sl(self, managed: ManagedTrade) -> float:
@@ -476,7 +464,7 @@ class TradeManager:
         success = self.broker.partial_close_trade(trade.trade_id, units_to_close)
         if success:
             managed.partial_tp_triggered = True
-            # Also move SL to break-even immediately (ATR-scaled, shared with _check_break_even)
+            # Also move SL to break-even immediately (shared with _check_break_even)
             new_sl = self._break_even_sl(managed)
             sl_moved = self.broker.modify_trade(
                 trade_id=trade.trade_id,

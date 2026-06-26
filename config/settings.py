@@ -80,19 +80,17 @@ class Settings:
     MIN_CONFLUENCES: int = int(os.getenv('MIN_CONFLUENCES', '3'))
     MIN_RR_RATIO: float = float(os.getenv('MIN_RR_RATIO', '1.5'))
 
-    # Trailing stop — gold uses USD/oz points (not pips)
+    # Trailing stop — gold uses fixed USD/oz points (pips); triggers are pip-based
     TRAILING_STOP_ACTIVATION_POINTS: float = float(os.getenv('TRAILING_STOP_ACTIVATION_POINTS', '7.0'))
+    TRAILING_DISTANCE_POINTS: float = float(os.getenv('TRAILING_DISTANCE_POINTS', '7.0'))
+    # ATR multipliers retained for reference/backtest A/B; not used by live pip-based triggers
     TRAILING_ATR_MULTIPLIER: float = float(os.getenv('TRAILING_ATR_MULTIPLIER', '1.5'))
-    # Trailing activation ATR scaling (gold). Arm trailing at ACTIVATION_MULT×ATR profit;
-    # fixed TRAILING_STOP_ACTIVATION_POINTS used only when ATR is unavailable.
-    # Keep ≥ BREAK_EVEN_ACTIVATION_ATR_MULT so break-even locks before trailing takes over.
     TRAILING_ACTIVATION_ATR_MULT: float = float(os.getenv('TRAILING_ACTIVATION_ATR_MULT', '2.0'))
 
-    # Break-even — gold points (fixed fallback used only when ATR is unavailable)
+    # Break-even — gold points (pips); triggers are pip-based
     BREAK_EVEN_ACTIVATION_POINTS: float = float(os.getenv('BREAK_EVEN_ACTIVATION_POINTS', '5.0'))
     BREAK_EVEN_BUFFER_POINTS: float = float(os.getenv('BREAK_EVEN_BUFFER_POINTS', '1.0'))
-    # Break-even ATR scaling (gold). Arm at ACTIVATION_MULT×ATR profit, lock at BUFFER_MULT×ATR.
-    # Activation must stay above buffer (equal values = zero breathing room = instant stop-out).
+    # ATR multipliers retained for reference/backtest A/B; not used by live pip-based triggers
     BREAK_EVEN_ACTIVATION_ATR_MULT: float = float(os.getenv('BREAK_EVEN_ACTIVATION_ATR_MULT', '1.5'))
     BREAK_EVEN_BUFFER_ATR_MULT: float = float(os.getenv('BREAK_EVEN_BUFFER_ATR_MULT', '0.5'))
 
