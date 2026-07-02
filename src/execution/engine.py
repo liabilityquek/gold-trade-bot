@@ -782,10 +782,18 @@ class TradingEngine:
         self.alert_manager._send_telegram("\n".join(lines), parse_mode='')
 
     def _log_decision_result(self, result: DecisionResult) -> None:
+        ind = result.indicators or {}
+        adx, e20, e50, hist = (
+            ind.get('adx'), ind.get('ema_20'), ind.get('ema_50'), ind.get('macd_hist'),
+        )
+        snap = ""
+        if adx is not None and e20 is not None and e50 is not None and hist is not None:
+            cross = 'EMA20>EMA50' if e20 > e50 else 'EMA20<EMA50'
+            snap = f" | ADX={adx:.1f} {cross} hist={hist:+.3f}"
         self.logger.info(
             f"{result.pair}: {result.final_signal.value} "
             f"conf={result.confidence:.2f} | setup={result.setup_type} | "
-            f"confluences={result.confluence_count} | {result.llm_reasoning}"
+            f"confluences={result.confluence_count} | {result.llm_reasoning}{snap}"
         )
 
     # ------------------------------------------------------------------
