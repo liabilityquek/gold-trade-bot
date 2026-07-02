@@ -35,7 +35,6 @@ class Settings:
     # ==========================================
     # VOTING ENGINE
     # ==========================================
-    CONSENSUS_THRESHOLD: float = float(os.getenv('CONSENSUS_THRESHOLD', '0.60'))
     CANDLE_COUNT: int = int(os.getenv('CANDLE_COUNT', '100'))
 
     # ==========================================
@@ -122,7 +121,6 @@ class Settings:
     # ECONOMIC CALENDAR
     # ==========================================
     JB_NEWS_API_KEY: str = os.getenv('JB_NEWS_API_KEY', '')
-    FRED_API_KEY: str = os.getenv('FRED_API_KEY', '')
     NEWS_SUSPEND_BEFORE_MINUTES: int = int(os.getenv('NEWS_SUSPEND_BEFORE_MINUTES', '30'))
     NEWS_RESUME_AFTER_MINUTES: int = int(os.getenv('NEWS_RESUME_AFTER_MINUTES', '30'))
     EVENT_CACHE_TTL_HOURS: int = int(os.getenv('EVENT_CACHE_TTL_HOURS', '1'))
@@ -170,15 +168,6 @@ class Settings:
     TP3_MULTIPLIER: float = float(os.getenv('TP3_MULTIPLIER', '3.0'))
 
     # ==========================================
-    # LLM CALL PARAMETERS
-    # ==========================================
-    LLM_MIN_CALL_SPACING_SECONDS: int = int(os.getenv('LLM_MIN_CALL_SPACING_SECONDS', '10'))
-    REVIEWER_MIN_CALL_SPACING_SECONDS: int = int(os.getenv('REVIEWER_MIN_CALL_SPACING_SECONDS', '5'))
-    LLM_MAX_TOKENS: int = int(os.getenv('LLM_MAX_TOKENS', '256'))
-    REVIEWER_MAX_TOKENS: int = int(os.getenv('REVIEWER_MAX_TOKENS', '200'))
-    LLM_RAG_SAMPLE_COUNT: int = int(os.getenv('LLM_RAG_SAMPLE_COUNT', '3'))
-
-    # ==========================================
     # CIRCUIT BREAKER (order executor)
     # ==========================================
     CIRCUIT_BREAKER_FAILURE_THRESHOLD: int = int(os.getenv('CIRCUIT_BREAKER_FAILURE_THRESHOLD', '5'))
@@ -192,12 +181,6 @@ class Settings:
     ORDER_RETRY_MAX_DELAY_SECONDS: float = float(os.getenv('ORDER_RETRY_MAX_DELAY_SECONDS', '30.0'))
     ORDER_RETRY_BACKOFF_MULTIPLIER: float = float(os.getenv('ORDER_RETRY_BACKOFF_MULTIPLIER', '2.0'))
     MAX_SLIPPAGE_POINTS: float = float(os.getenv('MAX_SLIPPAGE_POINTS', '2.0'))
-
-    # ==========================================
-    # MACRO CONTEXT THRESHOLDS
-    # ==========================================
-    MACRO_REAL_YIELD_BEARISH_THRESHOLD: float = float(os.getenv('MACRO_REAL_YIELD_BEARISH_THRESHOLD', '1.5'))
-    MACRO_REAL_YIELD_BULLISH_THRESHOLD: float = float(os.getenv('MACRO_REAL_YIELD_BULLISH_THRESHOLD', '0.0'))
 
     # ==========================================
     # SYSTEM
