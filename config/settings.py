@@ -64,13 +64,16 @@ class Settings:
     MAX_TOTAL_EXPOSURE: float = float(os.getenv('MAX_TOTAL_EXPOSURE', '0.80'))
 
     # Trade quality filters
-    MIN_CONFLUENCES: int = int(os.getenv('MIN_CONFLUENCES', '3'))
+    # DMI signal emits exactly 2 confirmations (+DI/-DI cross, ADX floor).
+    # Never set MIN_CONFLUENCES > 2 — no trade would ever fire.
+    MIN_CONFLUENCES: int = int(os.getenv('MIN_CONFLUENCES', '2'))
     MIN_RR_RATIO: float = float(os.getenv('MIN_RR_RATIO', '1.5'))
 
     # ==========================================
-    # TREND FOLLOWER (H1 EMA + ADX + MACD)
+    # TREND FOLLOWER (H1 DMI: +DI/-DI cross + ADX)
     # ==========================================
     TREND_ADX_MIN: float = float(os.getenv('TREND_ADX_MIN', '25'))
+    # EMA knobs now feed the recorded snapshot only — not the DMI signal.
     TREND_EMA_FAST: int = int(os.getenv('TREND_EMA_FAST', '20'))
     TREND_EMA_SLOW: int = int(os.getenv('TREND_EMA_SLOW', '50'))
 

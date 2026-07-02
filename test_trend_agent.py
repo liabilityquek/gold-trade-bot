@@ -31,7 +31,7 @@ def test_uptrend_buys():
     v = ag.analyze("XAU_USD", _ramp(2.0), {}, 3120.0)
     assert v.signal == Signal.BUY, f"strong uptrend should BUY, got {v.signal}"
     assert v.setup_type == "TREND"
-    assert len(v.meta['confirmations']) == 3
+    assert len(v.meta['confirmations']) == 2
 
 
 def test_downtrend_sells():
@@ -60,7 +60,7 @@ def test_flat_holds():
 def test_thin_holds():
     ag = TrendAgent()
     v = ag.analyze("XAU_USD", _ramp(2.0, n=30), {}, 3060.0)
-    assert v.signal == Signal.HOLD, "under ~55 bars must HOLD (EMA50 unavailable)"
+    assert v.signal == Signal.HOLD, "under 33 bars must HOLD (ADX(14) needs 2*14+5)"
 
 
 def test_garbage_never_raises():

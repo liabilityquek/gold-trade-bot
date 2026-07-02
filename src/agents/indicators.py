@@ -135,8 +135,13 @@ def ema(df: pd.DataFrame, period: int) -> Optional[float]:
 # ADX — Wilder smoothing on TR/+DM/-DM
 # ---------------------------------------------------------------------------
 
-def adx(df: pd.DataFrame, period: int = 14) -> Optional[float]:
-    """ADX using Wilder's smoothing."""
+def adx_di(df: pd.DataFrame, period: int = 14) -> Optional[Tuple[float, float, float]]:
+    """Return (ADX, +DI, -DI) using Wilder's smoothing, or None.
+
+    +DI/-DI come from directional movement (high/low range expansion), so they
+    carry different information from a close-price EMA — usable as an independent
+    direction check, not just a strength gate.
+    """
     if len(df) < period * 2 + 5:
         return None
 
@@ -167,7 +172,16 @@ def adx(df: pd.DataFrame, period: int = 14) -> Optional[float]:
     dx = (100 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, np.nan)).fillna(0)
     adx_val = dx.ewm(com=period - 1, adjust=False).mean().iloc[-1]
 
-    return float(adx_val) if pd.notna(adx_val) else None
+    pdi, mdi = plus_di.iloc[-1], minus_di.iloc[-1]
+    if pd.isna(adx_val) or pd.isna(pdi) or pd.isna(mdi):
+        return None
+    return float(adx_val), float(pdi), float(mdi)
+
+
+def adx(df: pd.DataFrame, period: int = 14) -> Optional[float]:
+    """ADX magnitude only (Wilder). Thin wrapper over adx_di()."""
+    r = adx_di(df, period)
+    return r[0] if r else None
 
 
 # ---------------------------------------------------------------------------

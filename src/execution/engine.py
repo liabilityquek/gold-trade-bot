@@ -15,7 +15,7 @@ Gold-specific:
   - No conflict_checker, no holiday_guard (gold is 24/5)
   - pip_size = 1.0 USD/oz (no JPY/non-JPY branching)
   - 3 TP levels: tp1 (1.5× SL), tp2 (2.0×), tp3 (3.0×)
-  - H1 trend decision from DecisionResult (TrendAgent: EMA + ADX + MACD)
+  - H1 trend decision from DecisionResult (TrendAgent: +DI/-DI cross + ADX)
 """
 
 import logging
@@ -783,13 +783,13 @@ class TradingEngine:
 
     def _log_decision_result(self, result: DecisionResult) -> None:
         ind = result.indicators or {}
-        adx, e20, e50, hist = (
-            ind.get('adx'), ind.get('ema_20'), ind.get('ema_50'), ind.get('macd_hist'),
+        adx, pdi, mdi = (
+            ind.get('adx'), ind.get('di_plus'), ind.get('di_minus'),
         )
         snap = ""
-        if adx is not None and e20 is not None and e50 is not None and hist is not None:
-            cross = 'EMA20>EMA50' if e20 > e50 else 'EMA20<EMA50'
-            snap = f" | ADX={adx:.1f} {cross} hist={hist:+.3f}"
+        if adx is not None and pdi is not None and mdi is not None:
+            cross = '+DI>-DI' if pdi > mdi else '+DI<-DI'
+            snap = f" | ADX={adx:.1f} {cross} (+DI={pdi:.1f} -DI={mdi:.1f})"
         self.logger.info(
             f"{result.pair}: {result.final_signal.value} "
             f"conf={result.confidence:.2f} | setup={result.setup_type} | "

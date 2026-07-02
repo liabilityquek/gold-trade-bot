@@ -1,7 +1,7 @@
 """DecisionEngine — deterministic H1 trend-following decision for XAU/USD.
 
 Pipeline per cycle:
-  1. TrendAgent.analyze()        -> BUY/SELL/HOLD (EMA + ADX + MACD, H1 only)
+  1. TrendAgent.analyze()        -> BUY/SELL/HOLD (+DI/-DI cross + ADX, H1 only)
   2. TrendAgent.get_indicators() -> indicator snapshot (recorded on every trade)
 
 No LLM, no reviewer, no macro. SL/TP and sizing live in the execution engine.

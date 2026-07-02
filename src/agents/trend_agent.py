@@ -1,12 +1,16 @@
 """TrendAgent — deterministic H1 trend-following signal for XAU/USD.
 
-Not predictive: it reads the current H1 trend and fires when three mechanical
-conditions agree. Symmetric long/short.
+Not predictive: it reads the current H1 trend via the classic Wilder DMI/ADX
+system and fires when direction and strength agree. Symmetric long/short.
 
 Signal (H1 only):
-  BUY  if EMA_FAST > EMA_SLOW AND ADX(14) >= TREND_ADX_MIN AND MACD histogram > 0
-  SELL if EMA_FAST < EMA_SLOW AND ADX(14) >= TREND_ADX_MIN AND MACD histogram < 0
+  BUY  if +DI > -DI AND ADX(14) >= TREND_ADX_MIN
+  SELL if +DI < -DI AND ADX(14) >= TREND_ADX_MIN
   else HOLD
+
++DI/-DI (direction) and ADX (strength) are both derived from directional
+movement, so the two confirmations are genuinely independent. EMA and MACD are
+computed for the recorded snapshot only — they no longer gate the decision.
 
 SL/TP and position sizing live downstream (execution engine) and are unchanged.
 Confidence is ADX-scaled and recorded only — no gate reads it.
@@ -17,7 +21,7 @@ from typing import Dict, List, Optional
 
 from .base import AgentVote, Signal
 from .indicators import (
-    to_dataframe, rsi, macd, ema, atr, adx,
+    to_dataframe, rsi, macd, ema, atr, adx_di,
     bollinger_bands, fisher_transform, market_structure,
 )
 from config.settings import settings
@@ -48,28 +52,22 @@ class TrendAgent:
         if df is None or len(df) == 0:
             return self._hold(pair, "No candle data")
 
-        ema_f = ema(df, settings.TREND_EMA_FAST)
-        ema_s = ema(df, settings.TREND_EMA_SLOW)
-        adx_v = adx(df, 14)
-        m = macd(df)  # (line, signal, hist) or None
-
-        if ema_f is None or ema_s is None or adx_v is None or m is None:
+        adxdi = adx_di(df, 14)
+        if adxdi is None:
             return self._hold(pair, "Insufficient data for trend")
 
-        hist = m[2]
+        adx_v, plus_di, minus_di = adxdi
         adx_ok = adx_v >= settings.TREND_ADX_MIN
-        up = ema_f > ema_s and adx_ok and hist > 0
-        down = ema_f < ema_s and adx_ok and hist < 0
+        up = plus_di > minus_di and adx_ok
+        down = minus_di > plus_di and adx_ok
 
         if not (up or down):
             return self._hold(pair, "No trend alignment")
 
-        fast, slow = settings.TREND_EMA_FAST, settings.TREND_EMA_SLOW
         adx_floor = int(settings.TREND_ADX_MIN)
         conf_list = [
-            f"EMA{fast} {'>' if up else '<'} EMA{slow}",
+            f"+DI {plus_di:.0f} {'>' if up else '<'} -DI {minus_di:.0f}",
             f"ADX {adx_v:.0f} >= {adx_floor}",
-            f"MACD hist {'+' if up else '-'}",
         ]
         confidence = min(0.55 + max(0.0, adx_v - settings.TREND_ADX_MIN) * 0.01, 0.90)
         signal = Signal.BUY if up else Signal.SELL
@@ -121,9 +119,11 @@ class TrendAgent:
                 if atr_val is not None:
                     indicators['atr'] = round(atr_val, 2)
 
-                adx_val = adx(df, 14)
-                if adx_val is not None:
-                    indicators['adx'] = round(adx_val, 2)
+                adxdi = adx_di(df, 14)
+                if adxdi is not None:
+                    indicators['adx'] = round(adxdi[0], 2)
+                    indicators['di_plus'] = round(adxdi[1], 2)
+                    indicators['di_minus'] = round(adxdi[2], 2)
 
                 bb = bollinger_bands(df, 20, 2.0)
                 if bb is not None:
