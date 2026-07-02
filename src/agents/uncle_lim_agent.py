@@ -23,12 +23,14 @@ import pandas as pd
 
 from .base import AgentVote, Signal
 from .indicators import to_dataframe, rsi, macd, ema, atr, adx, bollinger_bands, fisher_transform, market_structure
+from config.settings import settings
 
 
 @dataclass
 class UncleLimAnalysis:
     """Structured result from the Uncle Lim multi-TF analysis."""
     h4_bias: str = "neutral"           # bullish / bearish / neutral
+    h4_quality: str = "weak"           # strong (EMA stack + ADX) / weak
     h1_trigger: str = "none"           # snd_zone / trendline_breakout / rtb / none
     m30_confirmation: str = "none"     # lct / engulfing / snd_zone / none
     m15_confirmation: str = "none"     # lct / engulfing / snd_zone / none
@@ -103,6 +105,7 @@ class UncLeLimAgent:
             setup_type=result.setup_type,
             meta={
                 "h4_bias": result.h4_bias,
+                "h4_quality": result.h4_quality,
                 "h1_trigger": result.h1_trigger,
                 "m30_confirmation": result.m30_confirmation,
                 "m15_confirmation": result.m15_confirmation,
@@ -176,6 +179,7 @@ class UncLeLimAgent:
             indicators['uncle_lim_confidence'] = vote.confidence
             meta = vote.meta or {}
             indicators['uncle_lim_h4_bias'] = meta.get('h4_bias', 'neutral')
+            indicators['uncle_lim_h4_quality'] = meta.get('h4_quality', 'weak')
             indicators['uncle_lim_confluences'] = len(meta.get('confirmations', []))
             indicators['uncle_lim_confirmations'] = ', '.join(meta.get('confirmations', []))
         except Exception:
@@ -201,56 +205,81 @@ class UncLeLimAgent:
         m15_candles = htf_candles.get('M15', [])
         m5_candles  = htf_candles.get('M5', [])
 
-        # Step 1: H4 bias — primary trend direction
-        h4_bias = self._get_h4_bias(h4_candles)
+        # Step 1: H4 bias — primary trend direction + quality (EMA stack + ADX)
+        h4_bias, h4_strong = self._get_h4_bias(h4_candles)
         result.h4_bias = h4_bias
+        result.h4_quality = "strong" if h4_strong else "weak"
 
         if h4_bias == "neutral":
             return result  # No H4 trend = no trade
 
         is_long = h4_bias == "bullish"
 
+        # Dedup tolerance ~1 execution-TF ATR (H1 always has enough candles).
+        dedup_tol = (self._safe_atr(candles) or price * 0.001) * settings.UNCLE_LIM_DEDUP_ATR_MULT
+
+        collected: List = []      # List[Tuple[label, Optional[level]]]
+        levels_seen: List[float] = []
+
         # Step 2: H1 trigger — SND zone / trendline breakout / RTB
-        h1_trigger, h1_conf = self._get_h1_trigger(candles, price, is_long)
+        h1_trigger, h1_label, h1_level = self._get_h1_trigger(candles, price, is_long)
         result.h1_trigger = h1_trigger
-        if h1_conf:
-            result.confirmations.append(h1_conf)
-            if "SND" in h1_conf.upper():
+        if h1_label:
+            collected.append((h1_label, h1_level))
+            if h1_level is not None:
+                levels_seen.append(h1_level)
+            if "SND" in h1_label.upper():
                 result.setup_type = "SND_ZONE"
-            elif "TRENDLINE" in h1_conf.upper() or "BREAKOUT" in h1_conf.upper():
+            elif "TRENDLINE" in h1_label.upper() or "BREAKOUT" in h1_label.upper():
                 result.setup_type = "TRENDLINE_BREAKOUT"
-            elif "RTB" in h1_conf.upper():
+            elif "RTB" in h1_label.upper():
                 result.setup_type = "RTB"
 
         # Step 3: M30 confirmation — LCT / engulfing / SND
-        m30_conf_type, m30_conf_label = self._get_m30_confirmation(m30_candles, price, is_long)
-        result.m30_confirmation = m30_conf_type
-        if m30_conf_label:
-            result.confirmations.append(m30_conf_label)
-            if result.setup_type == "NONE" and "LCT" in m30_conf_label.upper():
+        m30_type, m30_label, m30_level = self._get_m30_confirmation(m30_candles, price, is_long)
+        result.m30_confirmation = m30_type
+        if m30_label:
+            collected.append((m30_label, m30_level))
+            if m30_level is not None:
+                levels_seen.append(m30_level)
+            if result.setup_type == "NONE" and "LCT" in m30_label.upper():
                 result.setup_type = "LCT"
-            elif result.setup_type == "NONE" and "PULLBACK" in m30_conf_label.upper():
+            elif result.setup_type == "NONE" and "PULLBACK" in m30_label.upper():
                 result.setup_type = "PULLBACK"
 
         # Step 4: M15 confirmation — LCT / engulfing / SND
-        m15_conf_type, m15_conf_label = self._get_m15_confirmation(m15_candles, price, is_long)
-        result.m15_confirmation = m15_conf_type
-        if m15_conf_label:
-            result.confirmations.append(m15_conf_label)
-            if result.setup_type == "NONE" and "LCT" in m15_conf_label.upper():
+        m15_type, m15_label, m15_level = self._get_m15_confirmation(m15_candles, price, is_long)
+        result.m15_confirmation = m15_type
+        if m15_label:
+            collected.append((m15_label, m15_level))
+            if m15_level is not None:
+                levels_seen.append(m15_level)
+            if result.setup_type == "NONE" and "LCT" in m15_label.upper():
                 result.setup_type = "LCT"
 
-        # Step 5: M5/M1 final trigger — Secret Pattern / SND
-        m5_trigger, m5_conf_label = self._get_m5_trigger(m5_candles, price, is_long)
+        # Step 5: M5/M1 final trigger — Secret Pattern (key-level checked) / SND
+        m5_trigger, m5_label, m5_level = self._get_m5_trigger(
+            m5_candles, price, is_long, key_levels=levels_seen
+        )
         result.m5_trigger = m5_trigger
-        if m5_conf_label:
-            result.confirmations.append(m5_conf_label)
+        if m5_label:
+            collected.append((m5_label, m5_level))
 
-        # Step 6: H4 bias always counts as a confirmation
-        h4_label = f"H4 {h4_bias.upper()} structure"
-        result.confirmations.insert(0, h4_label)
+        # Step 6: H4 counts as a confirmation ONLY when strong (EMA stack + ADX).
+        # Weak H4 still set the bias/gate above but no longer earns a free +1.
+        if h4_strong:
+            collected.insert(0, (f"H4 {h4_bias.upper()} structure", None))
 
-        # Step 7: Check minimum confirmations
+        # Step 7: Collapse confirmations that reference the same price level.
+        result.confirmations = self._dedup_confirmations(collected, dedup_tol)
+
+        self.logger.debug(
+            f"UncLeLim {pair}: h4_quality={result.h4_quality} "
+            f"collected={[c[0] for c in collected]} "
+            f"deduped={result.confirmations} dedup_tol={dedup_tol:.4f}"
+        )
+
+        # Step 8: Check minimum confirmations
         n_conf = len(result.confirmations)
         if n_conf < self._min_confirmations:
             result.signal = "HOLD"
@@ -270,22 +299,31 @@ class UncLeLimAgent:
     # H4 trend bias
     # ------------------------------------------------------------------
 
-    def _get_h4_bias(self, h4_candles: List[Dict]) -> str:
-        """Determine H4 trend bias: bullish / bearish / neutral.
+    def _get_h4_bias(self, h4_candles: List[Dict]):
+        """Determine H4 trend bias and quality: returns (bias, strong).
+
+        bias: bullish / bearish / neutral.
+        strong: True only when the EMA stack is fully aligned AND
+        ADX >= UNCLE_LIM_H4_MIN_ADX. Structure-only bullishness and a missing
+        ADX both fail closed (strong=False), so H4 earns a counted confirmation
+        only in a genuine, trending regime.
 
         BUY-side guardrail (gold bull market): bullish requires ema20>ema50
         AND ema50>ema200 (or ema200 unavailable, fallback to structure check).
         Bearish reverts to permissive EMA bias.
         """
         if len(h4_candles) < 20:
-            return "neutral"
+            return "neutral", False
         try:
             df = to_dataframe(h4_candles)
             ema20 = ema(df, 20)
             ema50 = ema(df, 50)
             ema200 = ema(df, 200)  # None if < 205 candles
             if ema20 is None or ema50 is None:
-                return "neutral"
+                return "neutral", False
+
+            adx_val = adx(df, 14)
+            strong_adx = adx_val is not None and adx_val >= settings.UNCLE_LIM_H4_MIN_ADX
 
             closes = [self._get_close(c) for c in h4_candles[-10:]]
             closes = [c for c in closes if c > 0]
@@ -301,16 +339,19 @@ class UncLeLimAgent:
 
             # BULLISH — EMA short>medium, and long-term regime not bearish
             if ema20 > ema50:
-                if ema200 is None or ema50 > ema200:
-                    return "bullish"
+                stack_aligned = ema200 is None or ema50 > ema200
+                if stack_aligned:
+                    return "bullish", strong_adx
                 if structure_ok_bullish:
-                    return "bullish"
-                return "neutral"
+                    return "bullish", False  # structure-only => never strong
+                return "neutral", False
 
             # BEARISH — permissive EMA bias
-            return "bearish"
-        except Exception:
-            return "neutral"
+            stack_aligned = ema200 is None or ema50 < ema200
+            return "bearish", (stack_aligned and strong_adx)
+        except Exception as exc:
+            self.logger.debug(f"_get_h4_bias failed: {exc}")
+            return "neutral", False
 
     # ------------------------------------------------------------------
     # H1 trigger detection
@@ -319,29 +360,37 @@ class UncLeLimAgent:
     def _get_h1_trigger(
         self, candles: List[Dict], price: float, is_long: bool
     ):
-        """Return (trigger_type, confirmation_label) for H1."""
+        """Return (trigger_type, confirmation_label, level) for H1."""
         if len(candles) < 10:
-            return "none", None
+            return "none", None, None
+
+        # Tolerances computed once on the FULL H1 array (>=19 => real ATR).
+        snd_tol = self._tf_tolerance(
+            candles, price,
+            settings.UNCLE_LIM_SND_PCT_FLOOR, settings.UNCLE_LIM_SND_ATR_MULT,
+        )
+        bo_tol = self._tf_tolerance(
+            candles, price,
+            settings.UNCLE_LIM_BREAKOUT_PCT_FLOOR, settings.UNCLE_LIM_BREAKOUT_ATR_MULT,
+        )
 
         # 1. Check for SND zone at H1
-        snd = self._detect_snd_zone(candles[-20:], price, is_long)
-        if snd:
+        ok, level = self._detect_snd_zone(candles[-20:], price, is_long, tol=snd_tol)
+        if ok:
             label = f"SND Zone H1 ({'demand' if is_long else 'supply'})"
-            return "snd_zone", label
+            return "snd_zone", label, level
 
         # 2. Check for trendline breakout at H1
-        breakout = self._detect_trendline_breakout(candles[-15:], price, is_long)
-        if breakout:
-            label = "Trendline Breakout H1"
-            return "trendline_breakout", label
+        ok, level = self._detect_trendline_breakout(candles[-15:], price, is_long, tol=bo_tol)
+        if ok:
+            return "trendline_breakout", "Trendline Breakout H1", level
 
         # 3. Check for RTB (return to breakout)
-        rtb = self._detect_rtb(candles[-20:], price, is_long)
-        if rtb:
-            label = "RTB H1 (return to breakout)"
-            return "rtb", label
+        ok, level = self._detect_rtb(candles[-20:], price, is_long, tol=snd_tol)
+        if ok:
+            return "rtb", "RTB H1 (return to breakout)", level
 
-        return "none", None
+        return "none", None, None
 
     # ------------------------------------------------------------------
     # M30 confirmation
@@ -350,31 +399,41 @@ class UncLeLimAgent:
     def _get_m30_confirmation(
         self, candles: List[Dict], price: float, is_long: bool
     ):
-        """Return (conf_type, label) for M30."""
+        """Return (conf_type, label, level) for M30."""
         if len(candles) < 5:
-            return "none", None
+            return "none", None, None
+
+        # Tolerances computed once on the FULL M30 array (>=19 => real ATR).
+        lct_tol = self._tf_tolerance(
+            candles, price,
+            settings.UNCLE_LIM_LCT_PCT_FLOOR, settings.UNCLE_LIM_LCT_ATR_MULT,
+        )
+        snd_tol = self._tf_tolerance(
+            candles, price,
+            settings.UNCLE_LIM_SND_PCT_FLOOR, settings.UNCLE_LIM_SND_ATR_MULT,
+        )
 
         # LCT: pullback after breakout to the broken level
-        lct = self._detect_lct(candles[-15:], price, is_long)
-        if lct:
-            return "lct", "LCT M30 (pullback/retest)"
+        ok, level = self._detect_lct(candles[-15:], price, is_long, tol=lct_tol)
+        if ok:
+            return "lct", "LCT M30 (pullback/retest)", level
 
-        # Engulfing candle
-        eng = self._detect_engulfing(candles[-5:], is_long)
+        # Engulfing candle (level synthesized from body midpoint for dedup)
+        eng = self._detect_engulfing(candles[-5:], is_long, ref_price=price)
         if eng:
-            return "engulfing", f"{'Bullish' if is_long else 'Bearish'} Engulfing M30"
+            return "engulfing", f"{'Bullish' if is_long else 'Bearish'} Engulfing M30", self._body_mid(candles[-1])
 
         # SND zone at M30
-        snd = self._detect_snd_zone(candles[-10:], price, is_long)
-        if snd:
-            return "snd_zone", f"SND Zone M30"
+        ok, level = self._detect_snd_zone(candles[-10:], price, is_long, tol=snd_tol)
+        if ok:
+            return "snd_zone", "SND Zone M30", level
 
         # Pullback to EMA
-        pullback = self._detect_pullback_to_ema(candles[-10:], price, is_long)
-        if pullback:
-            return "pullback", "Pullback M30"
+        ok, level = self._detect_pullback_to_ema(candles[-10:], price, is_long)
+        if ok:
+            return "pullback", "Pullback M30", level
 
-        return "none", None
+        return "none", None, None
 
     # ------------------------------------------------------------------
     # M15 confirmation
@@ -383,132 +442,256 @@ class UncLeLimAgent:
     def _get_m15_confirmation(
         self, candles: List[Dict], price: float, is_long: bool
     ):
-        """Return (conf_type, label) for M15."""
+        """Return (conf_type, label, level) for M15."""
         if len(candles) < 5:
-            return "none", None
+            return "none", None, None
 
-        lct = self._detect_lct(candles[-10:], price, is_long)
-        if lct:
-            return "lct", "LCT M15 (retest)"
+        # Tolerances computed once on the FULL M15 array (>=19 => real ATR).
+        lct_tol = self._tf_tolerance(
+            candles, price,
+            settings.UNCLE_LIM_LCT_PCT_FLOOR, settings.UNCLE_LIM_LCT_ATR_MULT,
+        )
+        snd_tol = self._tf_tolerance(
+            candles, price,
+            settings.UNCLE_LIM_SND_PCT_FLOOR, settings.UNCLE_LIM_SND_ATR_MULT,
+        )
 
-        eng = self._detect_engulfing(candles[-4:], is_long)
+        ok, level = self._detect_lct(candles[-10:], price, is_long, tol=lct_tol)
+        if ok:
+            return "lct", "LCT M15 (retest)", level
+
+        eng = self._detect_engulfing(candles[-4:], is_long, ref_price=price)
         if eng:
-            return "engulfing", f"{'Bullish' if is_long else 'Bearish'} Engulfing M15"
+            return "engulfing", f"{'Bullish' if is_long else 'Bearish'} Engulfing M15", self._body_mid(candles[-1])
 
-        snd = self._detect_snd_zone(candles[-8:], price, is_long)
-        if snd:
-            return "snd_zone", "SND Zone M15"
+        ok, level = self._detect_snd_zone(candles[-8:], price, is_long, tol=snd_tol)
+        if ok:
+            return "snd_zone", "SND Zone M15", level
 
-        return "none", None
+        return "none", None, None
 
     # ------------------------------------------------------------------
     # M5 final trigger
     # ------------------------------------------------------------------
 
     def _get_m5_trigger(
-        self, candles: List[Dict], price: float, is_long: bool
+        self, candles: List[Dict], price: float, is_long: bool,
+        key_levels: Optional[List[float]] = None,
     ):
-        """Return (trigger_type, label) for M5/M1."""
+        """Return (trigger_type, label, level) for M5/M1. The secret pattern is
+        checked against collected higher-TF levels (key_levels)."""
         if len(candles) < 3:
-            return "none", None
+            return "none", None, None
 
-        secret = self._detect_secret_pattern(candles[-5:], is_long)
+        tol = self._tf_tolerance(
+            candles, price,
+            settings.UNCLE_LIM_SND_PCT_FLOOR, settings.UNCLE_LIM_SND_ATR_MULT,
+        )
+        secret = self._detect_secret_pattern(
+            candles[-5:], is_long, ref_price=price, key_levels=key_levels, tol=tol
+        )
         if secret:
-            return "secret_pattern", "Secret Pattern M5"
+            return "secret_pattern", "Secret Pattern M5", self._body_mid(candles[-1])
 
-        snd = self._detect_snd_zone(candles[-5:], price, is_long)
-        if snd:
-            return "snd_zone", "SND Zone M5"
+        ok, level = self._detect_snd_zone(candles[-5:], price, is_long, tol=tol)
+        if ok:
+            return "snd_zone", "SND Zone M5", level
 
-        return "none", None
+        return "none", None, None
+
+    # ------------------------------------------------------------------
+    # Volatility / dedup helpers
+    # ------------------------------------------------------------------
+
+    def _safe_atr(self, candles: List[Dict]) -> Optional[float]:
+        """ATR(14) or None if <19 candles / bad data. Never raises."""
+        try:
+            df = to_dataframe(candles)
+            if df is None or len(df) < 19:
+                return None
+            return atr(df, 14)
+        except Exception as exc:
+            self.logger.debug(f"_safe_atr failed: {exc}")
+            return None
+
+    def _tf_tolerance(
+        self, candles: List[Dict], ref_price: float, pct: float, atr_mult: float
+    ) -> float:
+        """Volatility-aware tolerance: max(pct*price, atr_mult*ATR).
+
+        Falls back to the pct-of-price floor when ATR is unavailable (thin TF).
+        Epsilon-guarded so it is never zero.
+        """
+        floor = pct * ref_price
+        a = self._safe_atr(candles)
+        tol = max(floor, atr_mult * a) if a is not None else floor
+        return tol if tol > 0 else max(abs(ref_price) * 1e-6, 1e-6)
+
+    def _reaction_ok(
+        self, candles: List[Dict], level: float, is_long: bool, tol: float
+    ) -> bool:
+        """True if the LAST candle shows a genuine rejection at `level`.
+
+        BUY: low within tol of level AND a lower-wick rejection that closes back
+        up (hammer-ish). SELL: mirror with the upper wick. False on a degenerate
+        (range<=0) candle. This is what upgrades "price is near a level" into
+        "price reacted at a level".
+        """
+        if not candles:
+            return False
+        c = candles[-1]
+        o = self._get_open(c)
+        h = self._get_high(c)
+        lo = self._get_low(c)
+        cl = self._get_close(c)
+        if any(v <= 0 for v in (o, h, lo, cl)) or (h - lo) <= 0:
+            return False
+        body = abs(cl - o)
+        mult = settings.UNCLE_LIM_REACTION_WICK_MULT
+        if is_long:
+            if abs(lo - level) > tol:
+                return False
+            lower_wick = min(o, cl) - lo
+            return lower_wick > 0 and lower_wick >= body * mult and cl >= o
+        else:
+            if abs(h - level) > tol:
+                return False
+            upper_wick = h - max(o, cl)
+            return upper_wick > 0 and upper_wick >= body * mult and cl <= o
+
+    def _dedup_confirmations(self, items: List, tol: float) -> List[str]:
+        """Collapse confirmations that reference the same price level.
+
+        items: List[Tuple[label, Optional[level]]]. Entries whose level is within
+        tol of an already-kept level are dropped (cross-TF double-count). A None
+        level is always kept. Order preserved. Returns surviving labels.
+        """
+        kept_labels: List[str] = []
+        kept_levels: List[float] = []
+        for label, level in items:
+            if level is None:
+                kept_labels.append(label)
+                continue
+            if any(abs(level - kl) <= tol for kl in kept_levels):
+                continue
+            kept_labels.append(label)
+            kept_levels.append(level)
+        return kept_labels
+
+    def _body_mid(self, candle: dict) -> Optional[float]:
+        """Body midpoint of a candle — a synthetic level for wickless patterns
+        (engulfing / secret) so they still participate in dedup."""
+        o = self._get_open(candle)
+        cl = self._get_close(candle)
+        if o <= 0 or cl <= 0:
+            return None
+        return (o + cl) / 2
 
     # ------------------------------------------------------------------
     # Pattern detection helpers
     # ------------------------------------------------------------------
 
     def _detect_snd_zone(
-        self, candles: List[Dict], price: float, is_long: bool
-    ) -> bool:
+        self, candles: List[Dict], price: float, is_long: bool, tol: Optional[float] = None
+    ):
         """
-        Supply/Demand zone: price is at or near a previous consolidation / strong reaction level.
-        Demand (for BUY): price near a level that previously caused a strong upward move.
-        Supply (for SELL): price near a level that previously caused a strong downward move.
+        Supply/Demand zone: price is at or near a previous reaction level AND the
+        last candle actually rejects off it. Returns (matched, level).
+        Demand (for BUY): price near a prior swing-low / broken-resistance level.
+        Supply (for SELL): price near a prior swing-high / broken-support level.
+
+        Volatility-aware: tolerance = max(pct-floor, atr_mult*ATR). Requires
+        _reaction_ok so proximity alone is not enough.
         """
         if len(candles) < 6:
-            return False
+            return False, None
 
         closes = [self._get_close(c) for c in candles]
         highs  = [self._get_high(c)  for c in candles]
         lows   = [self._get_low(c)   for c in candles]
 
         if not all(v > 0 for v in closes + highs + lows):
-            return False
+            return False, None
 
-        # Zone tolerance: 0.3% of current price (roughly $10 on $3300 gold)
-        tolerance = price * 0.003
+        if tol is None:
+            tol = self._tf_tolerance(
+                candles, price,
+                settings.UNCLE_LIM_SND_PCT_FLOOR, settings.UNCLE_LIM_SND_ATR_MULT,
+            )
 
         if is_long:
-            # Demand zone: check if current price is near previous swing low cluster
+            # Demand zone: near a previous swing low cluster, reacting up
             recent_lows = sorted(lows[:-2])[:3]  # 3 lowest lows from history
             for level in recent_lows:
-                if abs(price - level) <= tolerance:
-                    # Confirm: price previously bounced from this level
-                    return True
-            # Also check: price returned to previous breakout level (resistance → support)
+                if abs(price - level) <= tol and self._reaction_ok(candles, level, True, tol):
+                    return True, level
+            # Or: returned to a broken resistance (resistance -> support)
             prev_highs = highs[:-3]
             if prev_highs:
                 prev_resistance = max(prev_highs[-3:]) if len(prev_highs) >= 3 else max(prev_highs)
-                if abs(price - prev_resistance) <= tolerance * 1.5:
-                    return True
+                band = tol * 1.5
+                if abs(price - prev_resistance) <= band and self._reaction_ok(candles, prev_resistance, True, band):
+                    return True, prev_resistance
         else:
-            # Supply zone: current price near previous swing high cluster
+            # Supply zone: near a previous swing high cluster, reacting down
             recent_highs = sorted(highs[:-2], reverse=True)[:3]
             for level in recent_highs:
-                if abs(price - level) <= tolerance:
-                    return True
+                if abs(price - level) <= tol and self._reaction_ok(candles, level, False, tol):
+                    return True, level
             prev_lows = lows[:-3]
             if prev_lows:
                 prev_support = min(prev_lows[-3:]) if len(prev_lows) >= 3 else min(prev_lows)
-                if abs(price - prev_support) <= tolerance * 1.5:
-                    return True
+                band = tol * 1.5
+                if abs(price - prev_support) <= band and self._reaction_ok(candles, prev_support, False, band):
+                    return True, prev_support
 
-        return False
+        return False, None
 
     def _detect_trendline_breakout(
-        self, candles: List[Dict], price: float, is_long: bool
-    ) -> bool:
+        self, candles: List[Dict], price: float, is_long: bool, tol: Optional[float] = None
+    ):
         """
-        Trendline breakout: price has broken above (BUY) or below (SELL) a recent
-        swing high / swing low with a meaningful move.
+        Trendline breakout: the last CLOSE (not a live wick/spread spike) has
+        broken above (BUY) or below (SELL) a recent swing pivot by at least a
+        volatility-aware margin. Returns (matched, pivot_level).
         """
         if len(candles) < 6:
-            return False
+            return False, None
 
-        closes = [self._get_close(c) for c in candles]
         highs  = [self._get_high(c)  for c in candles]
         lows   = [self._get_low(c)   for c in candles]
 
-        # Minimum breakout size: 0.2% of price (~$6.60 on $3300 gold)
-        min_breakout = price * 0.002
+        if tol is None:
+            tol = self._tf_tolerance(
+                candles, price,
+                settings.UNCLE_LIM_BREAKOUT_PCT_FLOOR, settings.UNCLE_LIM_BREAKOUT_ATR_MULT,
+            )
+
+        # Confirm on the closed candle, not the live price.
+        last_close = self._get_close(candles[-1])
+        if last_close <= 0:
+            return False, None
 
         if is_long:
-            # Current price > recent swing high from first half of window
             pivot_high = max(highs[:-3])
-            return price > pivot_high + min_breakout
+            if last_close > pivot_high + tol:
+                return True, pivot_high
         else:
-            # Current price < recent swing low from first half of window
             pivot_low = min(lows[:-3])
-            return price < pivot_low - min_breakout
+            if last_close < pivot_low - tol:
+                return True, pivot_low
+        return False, None
 
     def _detect_rtb(
-        self, candles: List[Dict], price: float, is_long: bool
-    ) -> bool:
+        self, candles: List[Dict], price: float, is_long: bool, tol: Optional[float] = None
+    ):
         """
-        Return to Breakout: price broke a level and has now returned to retest it.
-        Breakout detected in the middle of the candle window; retest is current price.
+        Return to Breakout: price broke a level (first half of window) and has now
+        returned to retest it. Returns (matched, breakout_level). Volatility-aware
+        tolerance (reuses the SND floor/mult).
         """
         if len(candles) < 10:
-            return False
+            return False, None
 
         mid = len(candles) // 2
         first_half = candles[:mid]
@@ -519,33 +702,36 @@ class UncLeLimAgent:
         s_closes = [self._get_close(c) for c in second_half]
 
         if not f_highs or not s_closes:
-            return False
+            return False, None
 
-        tolerance = price * 0.003
+        if tol is None:
+            tol = self._tf_tolerance(
+                candles, price,
+                settings.UNCLE_LIM_SND_PCT_FLOOR, settings.UNCLE_LIM_SND_ATR_MULT,
+            )
 
         if is_long:
             breakout_level = max(f_highs)
             # Price broke above, then returned to breakout level
-            if s_closes[-3] > breakout_level and abs(price - breakout_level) <= tolerance:
-                return True
+            if s_closes[-3] > breakout_level and abs(price - breakout_level) <= tol:
+                return True, breakout_level
         else:
             breakout_level = min(f_lows)
-            if s_closes[-3] < breakout_level and abs(price - breakout_level) <= tolerance:
-                return True
+            if s_closes[-3] < breakout_level and abs(price - breakout_level) <= tol:
+                return True, breakout_level
 
-        return False
+        return False, None
 
     def _detect_lct(
-        self, candles: List[Dict], price: float, is_long: bool
-    ) -> bool:
+        self, candles: List[Dict], price: float, is_long: bool, tol: Optional[float] = None
+    ):
         """
-        LCT (Life-Changing Technique): pullback to broken level after breakout.
-        1. Previous candles show breakout above (BUY) or below (SELL) key level
-        2. Price pulled back to that level
-        3. Currently reacting (small body / rejection candle at level)
+        LCT (Life-Changing Technique): pullback to a broken level after breakout,
+        with price holding on the correct side. Returns (matched, breakout_level).
+        Retest band is volatility-aware (LCT floor/mult) instead of a fixed ~$26.
         """
         if len(candles) < 6:
-            return False
+            return False, None
 
         mid = max(3, len(candles) // 2)
         early = candles[:mid]
@@ -553,31 +739,35 @@ class UncLeLimAgent:
 
         e_highs = [self._get_high(c)  for c in early]
         e_lows  = [self._get_low(c)   for c in early]
-        r_opens = [self._get_open(c)  for c in recent]
         r_closes= [self._get_close(c) for c in recent]
 
         if not e_highs or not r_closes:
-            return False
+            return False, None
 
-        tolerance = price * 0.004
+        if tol is None:
+            tol = self._tf_tolerance(
+                candles, price,
+                settings.UNCLE_LIM_LCT_PCT_FLOOR, settings.UNCLE_LIM_LCT_ATR_MULT,
+            )
 
         if is_long:
             breakout_level = max(e_highs)
-            # Recent price came back to breakout level
             recent_low = min([self._get_low(c) for c in recent])
-            if abs(recent_low - breakout_level) <= tolerance * 2 and price > breakout_level:
-                return True
+            if abs(recent_low - breakout_level) <= tol and price > breakout_level:
+                return True, breakout_level
         else:
             breakout_level = min(e_lows)
             recent_high = max([self._get_high(c) for c in recent])
-            if abs(recent_high - breakout_level) <= tolerance * 2 and price < breakout_level:
-                return True
+            if abs(recent_high - breakout_level) <= tol and price < breakout_level:
+                return True, breakout_level
 
-        return False
+        return False, None
 
-    def _detect_engulfing(self, candles: List[Dict], is_long: bool) -> bool:
+    def _detect_engulfing(self, candles: List[Dict], is_long: bool, ref_price: float = 0.0) -> bool:
         """
-        Bullish/Bearish engulfing: last candle body completely contains previous candle body.
+        Bullish/Bearish engulfing: last candle body completely contains previous
+        candle body. Doji filter FAILS CLOSED: if the reference price is missing
+        or the prior body is smaller than DOJI_BODY_PCT of price, reject.
         """
         if len(candles) < 2:
             return False
@@ -594,8 +784,9 @@ class UncLeLimAgent:
             return False
 
         p_body_size = abs(p_close - p_open)
-        if p_body_size < price_of(candles) * 0.0005:
-            return False  # Doji — not a valid engulfed candle
+        ref = ref_price or self._get_close(curr)
+        if ref <= 0 or p_body_size < ref * settings.UNCLE_LIM_DOJI_BODY_PCT:
+            return False  # Doji / no reference — not a valid engulfed candle
 
         if is_long:
             # Bullish engulfing: prev bearish (close < open), curr bullish (close > open)
@@ -607,12 +798,21 @@ class UncLeLimAgent:
             return (p_close > p_open and c_close < c_open
                     and c_open >= p_close and c_close <= p_open)
 
-    def _detect_secret_pattern(self, candles: List[Dict], is_long: bool) -> bool:
+    def _detect_secret_pattern(
+        self,
+        candles: List[Dict],
+        is_long: bool,
+        ref_price: float = 0.0,
+        key_levels: Optional[List[float]] = None,
+        tol: Optional[float] = None,
+    ) -> bool:
         """
-        Secret Pattern: small rejection candle at zone.
-        - Small body (< 30% of total range)
-        - Rejection wick: wick in opposite direction >= 2x body size
-        - At or near a key level
+        Secret Pattern: small rejection (pin) candle at a key level.
+        - Small body (<= PIN_BODY_RATIO of total range)
+        - Rejection wick opposite the trade direction >= PIN_WICK_MULT x body
+        - Pin's extreme wick within tol of a collected key level. When no key
+          levels are supplied (thin M5), fall back to shape-only (avoid
+          over-tightening on the noisiest TF).
         """
         if len(candles) < 2:
             return False
@@ -633,39 +833,54 @@ class UncLeLimAgent:
         body = abs(c_close - c_open)
         body_ratio = body / total_range
 
-        if body_ratio > 0.4:
+        if body_ratio > settings.UNCLE_LIM_PIN_BODY_RATIO:
             return False  # Body too large — not a pin/rejection candle
 
         if is_long:
             # Bullish secret pattern: long lower wick (rejection of lows)
             lower_wick = min(c_open, c_close) - c_low
-            return lower_wick >= body * 2
+            if lower_wick < body * settings.UNCLE_LIM_PIN_WICK_MULT:
+                return False
+            extreme = c_low
         else:
             # Bearish secret pattern: long upper wick (rejection of highs)
             upper_wick = c_high - max(c_open, c_close)
-            return upper_wick >= body * 2
+            if upper_wick < body * settings.UNCLE_LIM_PIN_WICK_MULT:
+                return False
+            extreme = c_high
+
+        # Key-level check: the pin must reject AT a level we already care about.
+        if key_levels and tol is not None:
+            return any(abs(extreme - lvl) <= tol for lvl in key_levels)
+        return True
 
     def _detect_pullback_to_ema(
         self, candles: List[Dict], price: float, is_long: bool
-    ) -> bool:
-        """Detect pullback to EMA20 in trend direction."""
+    ):
+        """Detect pullback to EMA20 in trend direction. Returns (matched, ema20).
+        Volatility-aware band (reuses the SND floor/mult)."""
         if len(candles) < 22:
-            return False
+            return False, None
         try:
             df = to_dataframe(candles)
             ema20 = ema(df, 20)
             if ema20 is None:
-                return False
-            tolerance = price * 0.002
+                return False, None
+            tol = self._tf_tolerance(
+                candles, price,
+                settings.UNCLE_LIM_SND_PCT_FLOOR, settings.UNCLE_LIM_SND_ATR_MULT,
+            )
             if is_long:
                 # Price has pulled back to EMA20 from above
-                return (price > ema20 * 0.998 and
-                        abs(price - ema20) <= tolerance * 2)
+                if price > ema20 * 0.998 and abs(price - ema20) <= tol:
+                    return True, ema20
             else:
-                return (price < ema20 * 1.002 and
-                        abs(price - ema20) <= tolerance * 2)
-        except Exception:
-            return False
+                if price < ema20 * 1.002 and abs(price - ema20) <= tol:
+                    return True, ema20
+            return False, None
+        except Exception as exc:
+            self.logger.debug(f"_detect_pullback_to_ema failed: {exc}")
+            return False, None
 
     # ------------------------------------------------------------------
     # Candle field extractors (handle both Oanda nested 'mid' and flat format)
@@ -694,15 +909,3 @@ class UncLeLimAgent:
         if 'mid' in c:
             return float(c['mid'].get('c', 0) or 0)
         return float(c.get('close', 0) or 0)
-
-
-def price_of(candles: List[Dict]) -> float:
-    """Get approximate price from last candle. Used for relative size checks.
-
-    Returns 0.0 when price is unavailable — callers treat this as 'skip size filter'.
-    """
-    if not candles:
-        return 0.0
-    c = candles[-1]
-    close = float(c.get('close', 0) or (c.get('mid', {}).get('c', 0)) or 0)
-    return close

@@ -10,6 +10,28 @@ env_path = Path(__file__).parent.parent / '.env'
 dotenv.load_dotenv(dotenv_path=env_path)
 
 
+# Required env vars with NO code default. A missing/blank value is recorded here
+# and turned into a FATAL error by Settings.validate() — the bot refuses to start
+# rather than silently trading on a hardcoded fallback.
+_MISSING_REQUIRED: List[str] = []
+
+
+def _req_float(key: str):
+    v = os.getenv(key)
+    if v is None or v.strip() == '':
+        _MISSING_REQUIRED.append(key)
+        return None
+    return float(v)
+
+
+def _req_int(key: str):
+    v = os.getenv(key)
+    if v is None or v.strip() == '':
+        _MISSING_REQUIRED.append(key)
+        return None
+    return int(v)
+
+
 class Settings:
     """Centralized configuration from environment variables."""
 
@@ -175,6 +197,28 @@ class Settings:
     TP3_MULTIPLIER: float = float(os.getenv('TP3_MULTIPLIER', '3.0'))
 
     # ==========================================
+    # UNCLE LIM STRATEGY (pattern detectors + confluence)
+    # No code defaults — every var is required; a missing one aborts startup
+    # via validate(). Mirror any change to .env.template AND the live .env.
+    # ==========================================
+    # ATR-scaled tolerance multipliers (per detector)
+    UNCLE_LIM_SND_ATR_MULT: float = _req_float('UNCLE_LIM_SND_ATR_MULT')
+    UNCLE_LIM_BREAKOUT_ATR_MULT: float = _req_float('UNCLE_LIM_BREAKOUT_ATR_MULT')
+    UNCLE_LIM_LCT_ATR_MULT: float = _req_float('UNCLE_LIM_LCT_ATR_MULT')
+    UNCLE_LIM_DEDUP_ATR_MULT: float = _req_float('UNCLE_LIM_DEDUP_ATR_MULT')
+    # pct-of-price floors (used when ATR unavailable on thin TFs)
+    UNCLE_LIM_SND_PCT_FLOOR: float = _req_float('UNCLE_LIM_SND_PCT_FLOOR')
+    UNCLE_LIM_BREAKOUT_PCT_FLOOR: float = _req_float('UNCLE_LIM_BREAKOUT_PCT_FLOOR')
+    UNCLE_LIM_LCT_PCT_FLOOR: float = _req_float('UNCLE_LIM_LCT_PCT_FLOOR')
+    # H4 trend-strength gate
+    UNCLE_LIM_H4_MIN_ADX: float = _req_float('UNCLE_LIM_H4_MIN_ADX')
+    # pattern-shape constants
+    UNCLE_LIM_DOJI_BODY_PCT: float = _req_float('UNCLE_LIM_DOJI_BODY_PCT')
+    UNCLE_LIM_PIN_BODY_RATIO: float = _req_float('UNCLE_LIM_PIN_BODY_RATIO')
+    UNCLE_LIM_PIN_WICK_MULT: float = _req_float('UNCLE_LIM_PIN_WICK_MULT')
+    UNCLE_LIM_REACTION_WICK_MULT: float = _req_float('UNCLE_LIM_REACTION_WICK_MULT')
+
+    # ==========================================
     # LLM CALL PARAMETERS
     # ==========================================
     LLM_MIN_CALL_SPACING_SECONDS: int = int(os.getenv('LLM_MIN_CALL_SPACING_SECONDS', '10'))
@@ -226,6 +270,9 @@ class Settings:
 
         if cls.ALERT_ENABLED and (not cls.TELEGRAM_BOT_TOKEN or not cls.TELEGRAM_CHAT_ID):
             errors.append("TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID required when ALERT_ENABLED is true")
+
+        if _MISSING_REQUIRED:
+            errors.append("Missing required env vars: " + ", ".join(_MISSING_REQUIRED))
 
         if errors:
             print("Configuration Errors:")
