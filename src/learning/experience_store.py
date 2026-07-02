@@ -123,8 +123,8 @@ class ExperienceStore:
                 "confidence": _safe_float(confidence),
                 "adx": _safe_float(ind.get("adx")),
                 "rsi": _safe_float(ind.get("rsi")),
-                "h4_bias": ind.get("uncle_lim_h4_bias"),
-                "confluences": ind.get("uncle_lim_confluences"),
+                "trend": ind.get("trend"),
+                "macd_hist": _safe_float(ind.get("macd_hist")),
                 "outcome": "OPEN",
                 "pnl": None,
                 "close_reason": None,
@@ -201,8 +201,8 @@ class ExperienceStore:
                         "confidence": None,
                         "adx": None,
                         "rsi": None,
-                        "h4_bias": None,
-                        "confluences": None,
+                        "trend": None,
+                        "macd_hist": None,
                         "outcome": outcome,
                         "pnl": None,
                         "close_reason": "historical",
@@ -377,7 +377,7 @@ class ExperienceStore:
 
 
 # ----------------------------------------------------------------------
-# Module-level singleton (mirrors goldmapping cache pattern in llm_agent)
+# Module-level singleton
 # ----------------------------------------------------------------------
 
 _store: Optional[ExperienceStore] = None

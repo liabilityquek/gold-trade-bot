@@ -5,7 +5,7 @@ Every cycle:
   2. Gold market hours check (Sun 22:00–Fri 21:00 UTC)
   3. Account info + daily loss circuit breaker
   4. News suspension check (Rule 1 & 2)
-  5. Fetch H1 candles + multi-TF candles (H4, M30, M15, M5)
+  5. Fetch H1 candles + M15 (momentum veto only)
   6. decision_engine.run_decision() → risk checks → place order
   7. Trade close detection
   8. TradeManager.update_all_trades() — trailing stops + age alerts
@@ -15,7 +15,7 @@ Gold-specific:
   - No conflict_checker, no holiday_guard (gold is 24/5)
   - pip_size = 1.0 USD/oz (no JPY/non-JPY branching)
   - 3 TP levels: tp1 (1.5× SL), tp2 (2.0×), tp3 (3.0×)
-  - Uncle Lim confluences from DecisionResult (pre-computed by UncLeLimAgent)
+  - H1 trend decision from DecisionResult (TrendAgent: EMA + ADX + MACD)
 """
 
 import logging
@@ -348,20 +348,16 @@ class TradingEngine:
         price = (price_info['bid'] + price_info['ask']) / 2
         self._last_known_price = price
 
-        # Fetch higher-timeframe candles for Uncle Lim multi-TF analysis
+        # Fetch M15 candles — only used by the downstream momentum veto
         htf_candles: dict = {}
-        for tf, count in [
-            ('H4',  settings.H4_CANDLE_COUNT),
-            ('M30', settings.M30_CANDLE_COUNT),
-            ('M15', settings.M15_CANDLE_COUNT),
-            ('M5',  settings.M5_CANDLE_COUNT),
-        ]:
-            try:
-                tf_data = self.broker.get_historical_candles(_INSTRUMENT, granularity=tf, count=count) or []
-                if tf_data:
-                    htf_candles[tf] = tf_data
-            except Exception:
-                pass
+        try:
+            m15_data = self.broker.get_historical_candles(
+                _INSTRUMENT, granularity='M15', count=settings.M15_CANDLE_COUNT
+            ) or []
+            if m15_data:
+                htf_candles['M15'] = m15_data
+        except Exception:
+            pass
 
         # Run decision pipeline
         result: DecisionResult = self.decision_engine.run_decision(
@@ -371,14 +367,14 @@ class TradingEngine:
 
         if result.final_signal == Signal.HOLD:
             self.logger.info(
-                f"{_INSTRUMENT}: HOLD (confidence={result.confidence:.2f} | "
-                f"reviewer={result.reviewer_verdict})"
+                f"{_INSTRUMENT}: HOLD (no trend — {result.llm_reasoning})"
             )
             return
 
         is_long = result.final_signal == Signal.BUY
 
-        # Confluence gate — Uncle Lim minimum 3 confirmations
+        # Confluence gate — a live trend signal carries all 3 conditions;
+        # guards against a malformed 0-confluence result
         min_confluences = settings.MIN_CONFLUENCES
         self.logger.info(
             f"{_INSTRUMENT}: confluence check — {result.confluence_count}/{min_confluences} "
@@ -387,23 +383,15 @@ class TradingEngine:
         )
         if result.confluence_count < min_confluences:
             self.logger.info(
-                f"{_INSTRUMENT}: REJECTED — insufficient Uncle Lim confluences "
+                f"{_INSTRUMENT}: REJECTED — insufficient confluences "
                 f"({result.confluence_count} < {min_confluences})"
             )
             return
 
-        # Setup quality gate
+        # Setup quality gate — rejects a NONE setup (no live signal)
         setup_quality = _get_gold_setup_quality(result.setup_type)
         if setup_quality == 0:
             self.logger.info(f"{_INSTRUMENT}: REJECTED — low-quality setup ({result.setup_type})")
-            return
-
-        min_conf_for_setup = _get_min_confidence_for_gold_setup(result.setup_type)
-        if result.confidence < min_conf_for_setup:
-            self.logger.info(
-                f"{_INSTRUMENT}: REJECTED — confidence {result.confidence:.2f} below minimum "
-                f"{min_conf_for_setup:.2f} for {result.setup_type}"
-            )
             return
 
         # Skip if existing position in opposite direction
@@ -509,7 +497,7 @@ class TradingEngine:
                 take_profit=broker_tp,
                 expected_price=entry_price,
                 signal_id=signal_id,
-                strategy_name=f"uncle_lim_{result.setup_type.lower()}",
+                strategy_name="trend",
             )
         )
 
@@ -537,7 +525,7 @@ class TradingEngine:
             if placed_trade:
                 self.trade_manager.register_trade(
                     placed_trade,
-                    strategy_name=f"uncle_lim_{result.setup_type.lower()}",
+                    strategy_name="trend",
                     trailing_stop=True,
                     confidence=result.confidence,
                     entry_reason=result.llm_reasoning,
@@ -789,8 +777,7 @@ class TradingEngine:
             f"Size:         {units:,} oz",
             f"Confidence:   {result.confidence:.2f}",
             "",
-            f"LLM: {result.final_signal.value} ({result.confidence:.2f}) | "
-            f"Reviewer: {result.reviewer_verdict} -- {result.reviewer_reason}",
+            f"Trend: {result.llm_reasoning}",
         ]
         self.alert_manager._send_telegram("\n".join(lines), parse_mode='')
 
@@ -798,8 +785,7 @@ class TradingEngine:
         self.logger.info(
             f"{result.pair}: {result.final_signal.value} "
             f"conf={result.confidence:.2f} | setup={result.setup_type} | "
-            f"confluences={result.confluence_count} | "
-            f"reviewer={result.reviewer_verdict} — {result.reviewer_reason}"
+            f"confluences={result.confluence_count} | {result.llm_reasoning}"
         )
 
     # ------------------------------------------------------------------
@@ -919,25 +905,9 @@ def _m15_momentum_aligned(m15_candles: list, is_long: bool) -> bool:
 
 
 def _get_gold_setup_quality(setup_type: str) -> int:
-    """Quality tiers for Uncle Lim gold setups."""
+    """Quality tier: a fired trend signal is TREND; NONE means no signal."""
     quality_map = {
-        'TRENDLINE_BREAKOUT': 5,
-        'SND_ZONE':           4,
-        'LCT':                4,
-        'RTB':                3,
-        'PULLBACK':           3,
-        'NONE':               0,
+        'TREND': 4,
+        'NONE':  0,
     }
     return quality_map.get(setup_type.upper(), 0)
-
-
-def _get_min_confidence_for_gold_setup(setup_type: str) -> float:
-    confidence_map = {
-        'TRENDLINE_BREAKOUT': 0.60,
-        'SND_ZONE':           0.60,
-        'LCT':                0.62,
-        'RTB':                0.65,
-        'PULLBACK':           0.65,
-        'NONE':               1.00,
-    }
-    return confidence_map.get(setup_type.upper(), 0.65)

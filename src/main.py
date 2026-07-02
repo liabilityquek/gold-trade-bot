@@ -76,15 +76,16 @@ def run_test(broker: OandaBroker, decision_engine: DecisionEngine, logger) -> bo
 
         price = (price_info['bid'] + price_info['ask']) / 2
 
-        # Fetch HTF candles for Uncle Lim
+        # Fetch M15 candles — only used by the downstream momentum veto
         htf_candles: dict = {}
-        for tf, count in [('H4', 80), ('M30', 30), ('M15', 20), ('M5', 15)]:
-            try:
-                tf_data = broker.get_historical_candles(_INSTRUMENT, granularity=tf, count=count) or []
-                if tf_data:
-                    htf_candles[tf] = tf_data
-            except Exception:
-                pass
+        try:
+            m15_data = broker.get_historical_candles(
+                _INSTRUMENT, granularity='M15', count=settings.M15_CANDLE_COUNT
+            ) or []
+            if m15_data:
+                htf_candles['M15'] = m15_data
+        except Exception:
+            pass
 
         result = decision_engine.run_decision(_INSTRUMENT, candles, price, htf_candles=htf_candles)
 
@@ -94,31 +95,26 @@ def run_test(broker: OandaBroker, decision_engine: DecisionEngine, logger) -> bo
         print(f"  Setup type      : {result.setup_type}")
         print(f"  Confluences     : {result.confluence_count}/{settings.MIN_CONFLUENCES} "
               f"[{', '.join(result.confluence_types)}]")
-        print(f"  LLM reasoning   : {result.llm_reasoning}")
-        print(f"  LLM available   : {result.llm_available}")
-        print(f"  Reviewer verdict: {result.reviewer_verdict}")
-        print(f"  Reviewer reason : {result.reviewer_reason}")
+        print(f"  Reasoning       : {result.llm_reasoning}")
         print(f"  Current price   : {price:.2f} USD/oz")
 
         # Print key indicators
         ind = result.indicators
-        uncle_lim_signal = ind.get('uncle_lim_signal', 'N/A')
-        uncle_lim_h4     = ind.get('uncle_lim_h4_bias', 'N/A')
-        uncle_lim_conf   = ind.get('uncle_lim_confluences', 0)
-        uncle_lim_setup  = ind.get('uncle_lim_setup_type', 'N/A')
-        rsi_val          = ind.get('rsi', 'N/A')
-        atr_val          = ind.get('atr', 'N/A')
-        trend            = ind.get('trend', 'N/A')
+        trend_signal = ind.get('trend_signal', 'N/A')
+        adx_val      = ind.get('adx', 'N/A')
+        rsi_val      = ind.get('rsi', 'N/A')
+        atr_val      = ind.get('atr', 'N/A')
+        trend        = ind.get('trend', 'N/A')
+        macd_hist    = ind.get('macd_hist', 'N/A')
 
-        print(f"\n  Uncle Lim Analysis:")
-        print(f"    H4 bias        : {uncle_lim_h4}")
-        print(f"    Signal         : {uncle_lim_signal}")
-        print(f"    Setup type     : {uncle_lim_setup}")
-        print(f"    Confluences    : {uncle_lim_conf}")
+        print(f"\n  Trend Analysis (H1):")
+        print(f"    Signal         : {trend_signal}")
+        print(f"    EMA trend      : {trend}")
+        print(f"    ADX            : {adx_val}")
+        print(f"    MACD hist      : {macd_hist}")
         print(f"\n  Indicators (H1):")
         print(f"    RSI            : {rsi_val}")
         print(f"    ATR            : {atr_val} USD/oz")
-        print(f"    Trend (EMA)    : {trend}")
 
     except Exception as exc:
         logger.error(f"{_INSTRUMENT}: test failed: {exc}")
@@ -140,7 +136,7 @@ def main():
     alert_manager = AlertManager(logger)
     kill_switch = KillSwitch(logger)
     event_monitor = EventMonitor(logger)
-    decision_engine = DecisionEngine(logger, alert_manager=alert_manager, event_monitor=event_monitor)
+    decision_engine = DecisionEngine(logger)
 
     if args.test:
         if not broker.connect():

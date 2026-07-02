@@ -10,28 +10,6 @@ env_path = Path(__file__).parent.parent / '.env'
 dotenv.load_dotenv(dotenv_path=env_path)
 
 
-# Required env vars with NO code default. A missing/blank value is recorded here
-# and turned into a FATAL error by Settings.validate() — the bot refuses to start
-# rather than silently trading on a hardcoded fallback.
-_MISSING_REQUIRED: List[str] = []
-
-
-def _req_float(key: str):
-    v = os.getenv(key)
-    if v is None or v.strip() == '':
-        _MISSING_REQUIRED.append(key)
-        return None
-    return float(v)
-
-
-def _req_int(key: str):
-    v = os.getenv(key)
-    if v is None or v.strip() == '':
-        _MISSING_REQUIRED.append(key)
-        return None
-    return int(v)
-
-
 class Settings:
     """Centralized configuration from environment variables."""
 
@@ -53,18 +31,6 @@ class Settings:
         if self.OANDA_ENVIRONMENT == 'live':
             return 'https://stream-fxtrade.oanda.com'
         return 'https://stream-fxpractice.oanda.com'
-
-    # ==========================================
-    # GROQ / LLM AGENT
-    # ==========================================
-    GROQ_API_KEY: str = os.getenv('GROQ_API_KEY', '')
-    LLM_MODEL: str = os.getenv('LLM_MODEL', 'llama-3.3-70b-versatile')
-    LLM_AGENT_WEIGHT: float = float(os.getenv('LLM_AGENT_WEIGHT', '1.5'))
-
-    ANTHROPIC_API_KEY: str = os.getenv('ANTHROPIC_API_KEY', '')
-    ANTHROPIC_LLM_MODEL: str = os.getenv('ANTHROPIC_LLM_MODEL', 'claude-haiku-4-5-20251001')
-
-    REVIEWER_LLM_MODEL: str = os.getenv('REVIEWER_LLM_MODEL', 'llama-3.1-8b-instant')
 
     # ==========================================
     # VOTING ENGINE
@@ -101,6 +67,13 @@ class Settings:
     # Trade quality filters
     MIN_CONFLUENCES: int = int(os.getenv('MIN_CONFLUENCES', '3'))
     MIN_RR_RATIO: float = float(os.getenv('MIN_RR_RATIO', '1.5'))
+
+    # ==========================================
+    # TREND FOLLOWER (H1 EMA + ADX + MACD)
+    # ==========================================
+    TREND_ADX_MIN: float = float(os.getenv('TREND_ADX_MIN', '25'))
+    TREND_EMA_FAST: int = int(os.getenv('TREND_EMA_FAST', '20'))
+    TREND_EMA_SLOW: int = int(os.getenv('TREND_EMA_SLOW', '50'))
 
     # LEARNING / EXPERIENCE BRAIN (shadow mode — observe-only)
     # Records entries/outcomes and injects a historical prior + reflection rules
@@ -197,28 +170,6 @@ class Settings:
     TP3_MULTIPLIER: float = float(os.getenv('TP3_MULTIPLIER', '3.0'))
 
     # ==========================================
-    # UNCLE LIM STRATEGY (pattern detectors + confluence)
-    # No code defaults — every var is required; a missing one aborts startup
-    # via validate(). Mirror any change to .env.template AND the live .env.
-    # ==========================================
-    # ATR-scaled tolerance multipliers (per detector)
-    UNCLE_LIM_SND_ATR_MULT: float = _req_float('UNCLE_LIM_SND_ATR_MULT')
-    UNCLE_LIM_BREAKOUT_ATR_MULT: float = _req_float('UNCLE_LIM_BREAKOUT_ATR_MULT')
-    UNCLE_LIM_LCT_ATR_MULT: float = _req_float('UNCLE_LIM_LCT_ATR_MULT')
-    UNCLE_LIM_DEDUP_ATR_MULT: float = _req_float('UNCLE_LIM_DEDUP_ATR_MULT')
-    # pct-of-price floors (used when ATR unavailable on thin TFs)
-    UNCLE_LIM_SND_PCT_FLOOR: float = _req_float('UNCLE_LIM_SND_PCT_FLOOR')
-    UNCLE_LIM_BREAKOUT_PCT_FLOOR: float = _req_float('UNCLE_LIM_BREAKOUT_PCT_FLOOR')
-    UNCLE_LIM_LCT_PCT_FLOOR: float = _req_float('UNCLE_LIM_LCT_PCT_FLOOR')
-    # H4 trend-strength gate
-    UNCLE_LIM_H4_MIN_ADX: float = _req_float('UNCLE_LIM_H4_MIN_ADX')
-    # pattern-shape constants
-    UNCLE_LIM_DOJI_BODY_PCT: float = _req_float('UNCLE_LIM_DOJI_BODY_PCT')
-    UNCLE_LIM_PIN_BODY_RATIO: float = _req_float('UNCLE_LIM_PIN_BODY_RATIO')
-    UNCLE_LIM_PIN_WICK_MULT: float = _req_float('UNCLE_LIM_PIN_WICK_MULT')
-    UNCLE_LIM_REACTION_WICK_MULT: float = _req_float('UNCLE_LIM_REACTION_WICK_MULT')
-
-    # ==========================================
     # LLM CALL PARAMETERS
     # ==========================================
     LLM_MIN_CALL_SPACING_SECONDS: int = int(os.getenv('LLM_MIN_CALL_SPACING_SECONDS', '10'))
@@ -265,21 +216,14 @@ class Settings:
         if not cls.OANDA_ACCOUNT_ID:
             errors.append("OANDA_ACCOUNT_ID is required")
 
-        if not cls.GROQ_API_KEY:
-            errors.append("GROQ_API_KEY is required (LLM agent will fall back to HOLD without it)")
-
         if cls.ALERT_ENABLED and (not cls.TELEGRAM_BOT_TOKEN or not cls.TELEGRAM_CHAT_ID):
             errors.append("TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID required when ALERT_ENABLED is true")
-
-        if _MISSING_REQUIRED:
-            errors.append("Missing required env vars: " + ", ".join(_MISSING_REQUIRED))
 
         if errors:
             print("Configuration Errors:")
             for error in errors:
                 print(f"  - {error}")
-            fatal = [e for e in errors if 'GROQ_API_KEY' not in e]
-            return len(fatal) == 0
+            return False
 
         return True
 
@@ -293,7 +237,6 @@ class Settings:
         print(f"  Environment: {cls.OANDA_ENVIRONMENT}")
         print(f"  Paper Trading: {cls.PAPER_TRADING_MODE}")
         print(f"  Timeframe: {cls.TIMEFRAME}")
-        print(f"  LLM Model: {cls.LLM_MODEL}")
         print(f"  Max Risk per Trade: {cls.MAX_RISK_PER_TRADE*100}%")
         print(f"  Min RR Ratio: {cls.MIN_RR_RATIO}")
         print(f"  Min Confluences: {cls.MIN_CONFLUENCES}")
